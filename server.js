@@ -7,7 +7,7 @@ const BALL_RADIUS = 14;
 const GOAL_RADIUS = 38;
 const WIDTH = 900;
 const HEIGHT = 600;
-const FRICTION = 0.991;
+const FRICTION = 0.992;
 const TARGET_SCORE = 5;
 const OBSTACLE_COUNT = 3;
 
@@ -169,10 +169,10 @@ wss.on("connection", (ws, req) => {
     }
     const g = room.game;
     if (msg.type === "throw" && g.turn === role) {
-      g.ball.vx = msg.vx * 5.5;
-      g.ball.vy = msg.vy * 5.5;
+      g.ball.vx = msg.vx * 4;
+      g.ball.vy = msg.vy * 4;
       const speed = Math.hypot(g.ball.vx, g.ball.vy);
-      const maxSpeed = 18;
+      const maxSpeed = 12;
       if (speed > maxSpeed) {
         const k = maxSpeed / speed;
         g.ball.vx *= k;
