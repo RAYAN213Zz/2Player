@@ -1,0 +1,13 @@
+{
+  "name": "versus-throw",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.13.0",
+    "nanoid": "^4.0.0"
+  }
+}
