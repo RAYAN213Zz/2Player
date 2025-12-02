@@ -99,20 +99,27 @@
     }
     #zoomControls {
         position: fixed;
-        bottom: 10px;
-        left: 10px;
+        top: calc(10px + env(safe-area-inset-top) + 52px);
+        left: calc(10px + env(safe-area-inset-left));
         display: flex;
-        gap: 6px;
-        z-index: 12;
+        gap: 8px;
+        z-index: 15;
+        background: rgba(0,0,0,0.35);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 6px 8px;
+        backdrop-filter: blur(6px);
     }
     #zoomControls button {
-        padding: 8px 10px;
+        width: 42px;
+        height: 42px;
         border-radius: 10px;
         border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(124,244,255,0.18);
+        background: rgba(124,244,255,0.2);
         color: #e9f2ff;
         cursor: pointer;
-        min-width: 44px;
+        font-size: 18px;
+        line-height: 1;
     }
 </style>
 </head>
