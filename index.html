@@ -2,7 +2,10 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0b1020" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Versus Throw</title>
 <style>
     :root {
@@ -22,16 +25,15 @@
     }
     header {
         position: fixed;
-        top: 0; left: 0; right: 0;
-        min-height: 64px;
-        padding: 10px 12px 12px;
+        top: 10px; left: 10px;
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
-        background: rgba(9,12,22,0.65);
+        background: rgba(9,12,22,0.4);
         backdrop-filter: blur(10px);
-        border-bottom: 1px solid rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 8px 10px;
         z-index: 10;
     }
     header input {
@@ -43,10 +45,10 @@
         width: 120px;
     }
     header button {
-        padding: 8px 12px;
+        padding: 8px 10px;
         border-radius: 10px;
         border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(124,244,255,0.12);
+        background: rgba(124,244,255,0.18);
         color: #e9f2ff;
         cursor: pointer;
     }
@@ -54,23 +56,14 @@
         padding: 6px 10px;
         border-radius: 10px;
         background: rgba(255,255,255,0.08);
-        font-size: 14px;
-        min-width: 110px;
+        font-size: 12px;
+        min-width: 90px;
         text-align: center;
     }
-    #info { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    #info span {
-        padding: 6px 10px;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.08);
-        font-size: 14px;
-    }
+    #info { display: none; }
     #canvas {
         position: absolute;
-        top: 70px;
-        left: 0;
-        width: 100%;
-        height: calc(100vh - 70px);
+        inset: 0;
         touch-action: none;
     }
     #toast {
@@ -88,8 +81,8 @@
     }
     #hint {
         position: fixed;
-        bottom: 12px;
-        right: 12px;
+        bottom: 10px;
+        right: 10px;
         padding: 10px 12px;
         background: rgba(0,0,0,0.35);
         border: 1px solid rgba(255,255,255,0.08);
@@ -104,11 +97,6 @@
 <body>
     <header>
         <span id="status">Deconnecte</span>
-        <div id="info">
-            <span id="you">Vous: ?</span>
-            <span id="turn">Tour: ?</span>
-            <span id="score">0 - 0</span>
-        </div>
         <input id="room" placeholder="Code salle" maxlength="8" />
         <button id="create">Créer</button>
         <button id="join">Rejoindre</button>
@@ -166,7 +154,6 @@ function connect(roomCode) {
 // Etat client
 // ----------------------------------------------------
 const canvas = document.getElementById("canvas");
-const headerEl = document.querySelector("header");
 const ctx = canvas.getContext("2d");
 let W = 0, H = 0;
 let game = {
@@ -178,10 +165,8 @@ let game = {
 };
 
 function resize() {
-    const top = headerEl.getBoundingClientRect().height;
-    canvas.style.top = `${top}px`;
     W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight - top;
+    H = canvas.height = window.innerHeight;
 }
 resize();
 window.addEventListener("resize", resize);
