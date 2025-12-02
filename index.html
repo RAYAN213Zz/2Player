@@ -238,7 +238,10 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-    if (game.turn !== myPlayer) return;
+    if (game.turn !== myPlayer) {
+        logToast("Attends ton tour");
+        return;
+    }
     const p = pointerPos(e);
     const dx = p.x - game.ball.x;
     const dy = p.y - game.ball.y;
