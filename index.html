@@ -96,7 +96,7 @@ let game = {
 // RÉSEAU : CONNEXION À TON SERVEUR WEBSOCKET
 // ======================================================
 function connectToServer(roomCode) {
-    socket = new WebSocket("wss://TONSERVEUR.onrender.com/?room=" + roomCode);
+socket = new WebSocket("wss://twoplayer.onrender.com/?room=" + roomCode);
 
     document.getElementById("status").textContent = "Connexion...";
 
