@@ -238,8 +238,9 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-    if (game.turn !== myPlayer) {
-        logToast("Attends ton tour");
+    const moving = Math.abs(game.ball.vx) + Math.abs(game.ball.vy) > 0.1;
+    if (game.turn !== myPlayer || moving) {
+        logToast(moving ? "Attends que la balle s'arrête" : "Attends ton tour");
         return;
     }
     const p = pointerPos(e);

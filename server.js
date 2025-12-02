@@ -169,6 +169,11 @@ wss.on("connection", (ws, req) => {
     }
     const g = room.game;
     if (msg.type === "throw" && g.turn === role) {
+      const moving = Math.abs(g.ball.vx) + Math.abs(g.ball.vy) > 0.08;
+      if (moving) {
+        try { ws.send(JSON.stringify({ type: "toast", message: "Attends que la balle s'arrete" })); } catch {}
+        return;
+      }
       g.ball.vx = msg.vx * 4;
       g.ball.vy = msg.vy * 4;
       const speed = Math.hypot(g.ball.vx, g.ball.vy);
