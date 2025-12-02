@@ -22,10 +22,14 @@
         color: #e9f2ff;
         font-family: "Segoe UI", Tahoma, sans-serif;
         overflow: hidden;
+        min-height: 100dvh;
+        height: 100dvh;
     }
+    html { height: 100dvh; }
     header {
         position: fixed;
-        top: 10px; left: 10px;
+        top: calc(10px + env(safe-area-inset-top));
+        left: calc(10px + env(safe-area-inset-left));
         display: flex;
         gap: 6px;
         align-items: center;
@@ -166,7 +170,9 @@ let game = {
 
 function resize() {
     W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
+    // iOS Safari : innerHeight varie avec la barre -> préférer visualViewport si dispo
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    H = canvas.height = vh;
 }
 resize();
 window.addEventListener("resize", resize);
