@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Versus Throw - WebSocket Duel</title>
+<style>
+    :root {
+        --bg: #05070f;
+        --panel: #0e1220;
+        --text: #e8f3ff;
+        --accent: #7cf4ff;
+        --p1: #7eff7a;
+        --p2: #ff7ad1;
+        --warn: #ffb347;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        background: radial-gradient(circle at 20% 20%, #0c1525, #05070f 50%);
+        color: var(--text);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        overflow: hidden;
+        height: 100vh;
+        touch-action: none;
+    }
+    header {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        background: rgba(8,12,20,0.6);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        z-index: 10;
+    }
+    #status { padding: 4px 10px; border-radius: 8px; background: rgba(255,255,255,0.06); }
+    #playerInfo { display: flex; gap: 10px; }
+    #playerInfo span { padding: 4px 8px; border-radius: 8px; background: rgba(255,255,255,0.06); }
+    #connectForm { display: flex; gap: 6px; align-items: center; }
+    #wsUrl { width: 240px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: var(--text); }
+    button {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(124,244,255,0.1);
+        color: var(--text);
+        cursor: pointer;
+    }
+    #board {
+        position: absolute;
+        inset: 0;
+        top: 60px;
+    }
+    #overlay {
+        position: fixed;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgba(0,0,0,0.35);
+        border: 1px solid rgba(255,255,255,0.08);
+        backdrop-filter: blur(6px);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: 14px;
+    }
+    #turn { font-weight: bold; }
+    #scores { display: flex; gap: 8px; }
+    .score { padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,0.06); }
+    #hint { color: #cbd4e0; }
+    canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+    <header>
+        <div id="status">Connexion: local</div>
+        <div id="playerInfo">
+            <span id="youLabel">Vous: P1</span>
+            <span id="modeLabel">Mode: local / Broadcast</span>
+        </div>
+        <form id="connectForm" onsubmit="return false;">
+            <label for="room">Code partie:</label>
+            <input id="room" type="text" placeholder="ABC12" maxlength="8" autocomplete="off">
+            <button id="createBtn" type="button">Creer</button>
+            <button id="joinBtn" type="button">Rejoindre</button>
+            <button id="localBtn" type="button">Local</button>
+        </form>
+    </header>
+
+    <div id="board">
+        <canvas id="game"></canvas>
+    </div>
+
+    <div id="overlay">
+        <div id="turn">Tour: P1</div>
+        <div id="scores">
+            <div class="score" id="scoreP1">P1: 0</div>
+            <div class="score" id="scoreP2">P2: 0</div>
+        </div>
+        <div id="hint">Drag pour viser et relâche pour jeter.</div>
+    </div>
+
+<script>
+// -----------------------------------------------------
+// Constantes
+// -----------------------------------------------------
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const modeLabel = document.getElementById("modeLabel");
+const youLabel = document.getElementById("youLabel");
+const turnEl = document.getElementById("turn");
+const sP1 = document.getElementById("scoreP1");
+const sP2 = document.getElementById("scoreP2");
+const roomInput = document.getElementById("room");
+const createBtn = document.getElementById("createBtn");
+const joinBtn = document.getElementById("joinBtn");
+const localBtn = document.getElementById("localBtn");
+
+let W = window.innerWidth;
+let H = window.innerHeight - 60;
+canvas.width = W;
+canvas.height = H;
+
+// -----------------------------------------------------
+// Etat du jeu
+// -----------------------------------------------------
+const BALL_R = 14;
+const GOAL_R = 32;
+const FRICTION = 0.985;
+const MIN_SPEED = 0.06;
+
+const meId = crypto.randomUUID().slice(0, 8);
+let players = []; // [{id, label}]
+let myLabel = "P1";
+let myIndex = 0;
+let roomCode = "LOCAL";
+let isHost = true;
+const MAX_PLAYERS = 2;
+
+const state = {
+    ball: { x: W/2, y: H/2, vx: 0, vy: 0 },
+    goal: { x: rand(80, W-80), y: rand(120, H-80) },
+    turn: null,
+    scores: { P1: 0, P2: 0 },
+    round: 1
+};
+
+let dragging = false;
+let dragStart = null;
+let connectionMode = "local"; // local | broadcast | relay
+let socket = null;
+const channel = new BroadcastChannel("versus-throw");
+const RELAY_URL = "wss://relay.websocket.events";
+
+// -----------------------------------------------------
+// Utils
+// -----------------------------------------------------
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function setStatus(text) { statusEl.textContent = "Connexion: " + text; }
+function setMode(text) { modeLabel.textContent = "Mode: " + text; }
+function setYou(label) { youLabel.textContent = "Vous: " + label; }
+function setTurn(label) {
+    turnEl.textContent = "Tour: " + label;
+    turnEl.style.color = label === "P1" ? "var(--p1)" : "var(--p2)";
+}
+function updateScores() {
+    sP1.textContent = "P1: " + state.scores.P1;
+    sP2.textContent = "P2: " + state.scores.P2;
+}
+
+// -----------------------------------------------------
+// Réseau
+// -----------------------------------------------------
+channel.onmessage = (ev) => {
+    const msg = ev.data;
+    if (!msg || !msg.type) return;
+    if (msg.room && msg.room !== roomCode) return;
+    handleNetMessage(msg, false);
+};
+
+function broadcast(msg) {
+    const enriched = { ...msg, room: roomCode };
+    if (connectionMode === "broadcast" || connectionMode === "local") {
+        channel.postMessage(enriched);
+    }
+    if (connectionMode === "relay" && socket && socket.readyState === 1) {
+        socket.send(JSON.stringify(enriched));
+    }
+}
+
+function handleNetMessage(msg, fromWs) {
+    if (msg.type === "presence") {
+        const exists = players.find(p => p.id === msg.id);
+        if (!exists && players.length >= MAX_PLAYERS) {
+            // room pleine, informer l'expéditeur
+            broadcast({ type: "full", to: msg.id });
+            return;
+        }
+        if (!exists) {
+            players.push({ id: msg.id, label: players.length === 0 ? "P1" : "P2" });
+            assignLabels();
+            if (isHost) syncState();
+        }
+        return;
+    }
+    if (msg.type === "full" && msg.to === meId) {
+        setStatus("salle pleine");
+        return;
+    }
+    if (msg.type === "state") {
+        applyState(msg.state);
+        return;
+    }
+    if (msg.type === "throw" && msg.state) {
+        applyState(msg.state);
+        return;
+    }
+}
+
+function assignLabels() {
+    players.sort((a, b) => a.id.localeCompare(b.id));
+    players = players.slice(0, 2);
+    players.forEach((p, idx) => p.label = idx === 0 ? "P1" : "P2");
+    const me = players.find(p => p.id === meId);
+    myLabel = me ? me.label : (players.length < 2 ? "P2" : "spect");
+    myIndex = myLabel === "P1" ? 0 : 1;
+    isHost = myLabel === "P1";
+    setYou(myLabel);
+    if (!state.turn) {
+        state.turn = "P1";
+        syncState();
+    }
+    updateScores();
+    setTurn(state.turn);
+}
+
+function syncState() {
+    broadcast({ type: "state", state });
+}
+
+// -----------------------------------------------------
+// Jeu
+// -----------------------------------------------------
+function resetRound(scoringPlayer = null) {
+    state.ball = { x: W/2, y: H/2, vx: 0, vy: 0 };
+    state.goal = { x: rand(80, W-80), y: rand(120, H-80) };
+    state.round += 1;
+    if (scoringPlayer) {
+        state.scores[scoringPlayer] = (state.scores[scoringPlayer] || 0) + 1;
+    }
+    updateScores();
+    state.turn = state.turn === "P1" ? "P2" : "P1";
+    setTurn(state.turn);
+    syncState();
+}
+
+function applyState(newState) {
+    Object.assign(state, {
+        ball: { ...state.ball, ...newState.ball },
+        goal: { ...state.goal, ...newState.goal },
+        turn: newState.turn,
+        scores: { ...state.scores, ...newState.scores },
+        round: newState.round
+    });
+    updateScores();
+    setTurn(state.turn);
+}
+
+// -----------------------------------------------------
+// Input
+// -----------------------------------------------------
+canvas.addEventListener("pointerdown", (e) => {
+    if (state.turn !== myLabel) return;
+    dragging = true;
+    dragStart = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener("pointermove", (e) => {
+    if (dragging) {
+        dragStart.current = { x: e.clientX, y: e.clientY };
+    }
+});
+
+canvas.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const end = { x: e.clientX, y: e.clientY };
+    const dx = end.x - dragStart.x;
+    const dy = end.y - dragStart.y;
+    const power = Math.min(Math.hypot(dx, dy), 260) / 18;
+    state.ball.vx = dx === 0 && dy === 0 ? 0 : (dx / Math.max(1, Math.hypot(dx, dy))) * power;
+    state.ball.vy = dy === 0 && dx === 0 ? 0 : (dy / Math.max(1, Math.hypot(dx, dy))) * power;
+    state.turn = state.turn === "P1" ? "P2" : "P1";
+    setTurn(state.turn);
+    syncState();
+});
+
+// -----------------------------------------------------
+// Render & Loop
+// -----------------------------------------------------
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight - 60;
+    canvas.width = W;
+    canvas.height = H;
+    resetRound();
+}
+window.addEventListener("resize", resize);
+
+function step() {
+    // physics
+    state.ball.x += state.ball.vx;
+    state.ball.y += state.ball.vy;
+    state.ball.vx *= FRICTION;
+    state.ball.vy *= FRICTION;
+    if (Math.abs(state.ball.vx) < MIN_SPEED) state.ball.vx = 0;
+    if (Math.abs(state.ball.vy) < MIN_SPEED) state.ball.vy = 0;
+
+    // walls
+    if (state.ball.x < BALL_R) { state.ball.x = BALL_R; state.ball.vx *= -0.6; }
+    if (state.ball.x > W - BALL_R) { state.ball.x = W - BALL_R; state.ball.vx *= -0.6; }
+    if (state.ball.y < BALL_R) { state.ball.y = BALL_R; state.ball.vy *= -0.6; }
+    if (state.ball.y > H - BALL_R) { state.ball.y = H - BALL_R; state.ball.vy *= -0.6; }
+
+    // goal
+    if (dist(state.ball.x, state.ball.y, state.goal.x, state.goal.y) < BALL_R + GOAL_R * 0.65) {
+        const scorer = state.turn === "P1" ? "P2" : "P1"; // the one who just played
+        resetRound(scorer);
+    }
+
+    draw();
+    requestAnimationFrame(step);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // field
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#0b1320");
+    g.addColorStop(1, "#080c15");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // goal
+    ctx.beginPath();
+    ctx.arc(state.goal.x, state.goal.y, GOAL_R, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(124,244,255,0.15)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(124,244,255,0.5)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // ball
+    ctx.beginPath();
+    ctx.arc(state.ball.x, state.ball.y, BALL_R, 0, Math.PI * 2);
+    const col = state.turn === "P1" ? "var(--p2)" : "var(--p1)";
+    ctx.fillStyle = state.turn === "P1" ? "var(--p1)" : "var(--p2)";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = col;
+    ctx.stroke();
+
+    // drag indicator
+    if (dragging && dragStart?.current) {
+        ctx.beginPath();
+        ctx.moveTo(state.ball.x, state.ball.y);
+        ctx.lineTo(dragStart.current.x, dragStart.current.y);
+        ctx.strokeStyle = "rgba(255,255,255,0.6)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+// -----------------------------------------------------
+// Init
+// -----------------------------------------------------
+function initLocalPlayers() {
+    players = [{ id: meId, label: "P1" }];
+    assignLabels();
+    broadcast({ type: "presence", id: meId, room: roomCode });
+    connectionMode = "broadcast";
+    setMode("Broadcast/local");
+}
+
+function startRelay() {
+    if (socket) socket.close();
+    try {
+        socket = new WebSocket(RELAY_URL);
+    } catch (e) {
+        setStatus("erreur URL");
+        return;
+    }
+    connectionMode = "relay";
+    setMode("Relay public");
+    socket.onopen = () => {
+        setStatus("connecte " + roomCode);
+        broadcast({ type: "presence", id: meId }); // via relay
+        // host envoie l'etat initial
+        if (isHost) syncState();
+    };
+    socket.onerror = () => setStatus("erreur");
+    socket.onclose = () => setStatus("ferme");
+    socket.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.room && msg.room !== roomCode) return;
+            handleNetMessage(msg, true);
+        } catch (_) {}
+    };
+}
+
+createBtn.addEventListener("click", () => {
+    roomCode = (Math.random().toString(36).slice(2, 8) + "").toUpperCase();
+    roomInput.value = roomCode;
+    setStatus("creation " + roomCode);
+    startRelay();
+});
+
+joinBtn.addEventListener("click", () => {
+    const code = roomInput.value.trim().toUpperCase();
+    if (!code) return;
+    roomCode = code;
+    setStatus("join " + roomCode);
+    startRelay();
+});
+
+localBtn.addEventListener("click", () => {
+    if (socket) socket.close();
+    connectionMode = "broadcast";
+    roomCode = "LOCAL";
+    setStatus("local");
+    setMode("Broadcast/local");
+    initLocalPlayers();
+});
+
+initLocalPlayers();
+resize();
+step();
+</script>
+</body>
+</html>
