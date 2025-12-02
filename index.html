@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0b1020" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.json" />
 <title>Versus Throw</title>
 <style>
     :root {
@@ -116,6 +117,11 @@
 const WS_URL = "wss://twoplayer.onrender.com";
 let socket = null;
 let myPlayer = null;
+const BASE_W = 900;
+const BASE_H = 600;
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
 
 function logToast(msg) {
     const t = document.getElementById("toast");
@@ -170,9 +176,12 @@ let game = {
 
 function resize() {
     W = canvas.width = window.innerWidth;
-    // iOS Safari : innerHeight varie avec la barre -> préférer visualViewport si dispo
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     H = canvas.height = vh;
+    scale = Math.min(W / BASE_W, H / BASE_H);
+    // centrer
+    offsetX = (W - BASE_W * scale) / 2;
+    offsetY = (H - BASE_H * scale) / 2;
 }
 resize();
 window.addEventListener("resize", resize);
@@ -192,7 +201,9 @@ let dragStart = null; // centre de la balle au départ du drag
 
 function pointerPos(e) {
     const r = canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    const x = (e.clientX - r.left - offsetX) / scale;
+    const y = (e.clientY - r.top - offsetY) / scale;
+    return { x, y };
 }
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -234,11 +245,15 @@ canvas.addEventListener("pointerup", (e) => {
 // ----------------------------------------------------
 function draw() {
     ctx.clearRect(0, 0, W, H);
-    const grad = ctx.createLinearGradient(0, 0, W, H);
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    const grad = ctx.createLinearGradient(0, 0, BASE_W, BASE_H);
     grad.addColorStop(0, "#0b1328");
     grad.addColorStop(1, "#0a0f1f");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, BASE_W, BASE_H);
 
     // goal
     ctx.beginPath();
@@ -302,6 +317,7 @@ function draw() {
         ctx.stroke();
         ctx.setLineDash([]);
     }
+    ctx.restore();
     requestAnimationFrame(draw);
 }
 draw();
