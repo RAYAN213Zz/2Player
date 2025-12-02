@@ -97,6 +97,23 @@
         line-height: 1.4;
         color: #dbe7ff;
     }
+    #zoomControls {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        display: flex;
+        gap: 6px;
+        z-index: 12;
+    }
+    #zoomControls button {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(124,244,255,0.18);
+        color: #e9f2ff;
+        cursor: pointer;
+        min-width: 44px;
+    }
 </style>
 </head>
 <body>
@@ -109,6 +126,10 @@
     <canvas id="canvas"></canvas>
     <div id="toast"></div>
     <div id="hint">Appuie près de la balle, glisse vers la direction voulue, relâche. Code salle pour jouer à 2.</div>
+    <div id="zoomControls">
+        <button id="zoomOut">-</button>
+        <button id="zoomIn">+</button>
+    </div>
 
 <script>
 // ----------------------------------------------------
@@ -122,6 +143,7 @@ const BASE_H = 600;
 let scale = 1;
 let offsetX = 0;
 let offsetY = 0;
+let zoomFactor = 1;
 
 function logToast(msg) {
     const t = document.getElementById("toast");
@@ -178,8 +200,10 @@ function resize() {
     W = canvas.width = window.innerWidth;
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     H = canvas.height = vh;
-    scale = Math.min(W / BASE_W, H / BASE_H);
-    // centrer
+    const fit = Math.min(W / BASE_W, H / BASE_H);
+    // un léger dezoom pour tout voir, ajustable par zoomFactor
+    scale = fit * 0.9 * zoomFactor;
+    scale = Math.max(0.5, Math.min(scale, 1.4));
     offsetX = (W - BASE_W * scale) / 2;
     offsetY = (H - BASE_H * scale) / 2;
 }
@@ -335,6 +359,8 @@ document.getElementById("join").onclick = () => {
     if (!code) return logToast("Code requis");
     connect(code);
 };
+document.getElementById("zoomIn").onclick = () => { zoomFactor = Math.min(1.4, zoomFactor + 0.1); resize(); };
+document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.5, zoomFactor - 0.1); resize(); };
 </script>
 </body>
 </html>
