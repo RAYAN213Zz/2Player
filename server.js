@@ -4,10 +4,12 @@ import { nanoid } from "nanoid";
 const PORT = process.env.PORT || 10000;
 const TICK = 1000 / 60;
 const BALL_RADIUS = 14;
-const GOAL_RADIUS = 36;
+const GOAL_RADIUS = 38;
 const WIDTH = 900;
 const HEIGHT = 600;
 const FRICTION = 0.985;
+const TARGET_SCORE = 5;
+const OBSTACLE_COUNT = 3;
 
 const wss = new WebSocketServer({ port: PORT });
 const rooms = new Map(); // roomCode -> { players: [{id, ws, role}], game, loop }
@@ -18,7 +20,40 @@ function makeGame() {
     goal: { x: WIDTH * 0.8, y: HEIGHT / 2 },
     turn: "P1",
     scores: { P1: 0, P2: 0 },
+    obstacles: [],
   };
+}
+
+function randomObstacles() {
+  const obs = [];
+  let tries = 0;
+  while (obs.length < OBSTACLE_COUNT && tries < 200) {
+    tries++;
+    const w = 120;
+    const h = 24;
+    const x = 80 + Math.random() * (WIDTH - 160 - w);
+    const y = 80 + Math.random() * (HEIGHT - 160 - h);
+    const rect = { x, y, w, h };
+    const tooCloseGoal = distanceRectCircle(rect, { x: WIDTH * 0.8, y: HEIGHT / 2, r: GOAL_RADIUS + 60 });
+    const tooCloseCenter = distanceRectCircle(rect, { x: WIDTH / 2, y: HEIGHT / 2, r: 140 });
+    const overlapOther = obs.some(o => rectsOverlap(o, rect));
+    if (!tooCloseGoal && !tooCloseCenter && !overlapOther) {
+      obs.push(rect);
+    }
+  }
+  return obs;
+}
+
+function rectsOverlap(a, b) {
+  return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+}
+
+function distanceRectCircle(rect, circle) {
+  const cx = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
+  const cy = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
+  const dx = circle.x - cx;
+  const dy = circle.y - cy;
+  return Math.hypot(dx, dy) < circle.r;
 }
 
 function startLoop(roomCode) {
@@ -39,17 +74,51 @@ function startLoop(roomCode) {
     if (g.ball.y < BALL_RADIUS) { g.ball.y = BALL_RADIUS; g.ball.vy *= -0.7; }
     if (g.ball.y > HEIGHT - BALL_RADIUS) { g.ball.y = HEIGHT - BALL_RADIUS; g.ball.vy *= -0.7; }
 
+    // obstacles
+    for (const o of g.obstacles) {
+      const nearestX = Math.max(o.x, Math.min(g.ball.x, o.x + o.w));
+      const nearestY = Math.max(o.y, Math.min(g.ball.y, o.y + o.h));
+      const dx = g.ball.x - nearestX;
+      const dy = g.ball.y - nearestY;
+      const dist = Math.hypot(dx, dy);
+      if (dist < BALL_RADIUS) {
+        // resolve
+        const overlap = BALL_RADIUS - dist + 0.5;
+        const nx = dist === 0 ? 1 : dx / dist;
+        const ny = dist === 0 ? 0 : dy / dist;
+        g.ball.x += nx * overlap;
+        g.ball.y += ny * overlap;
+        // bounce
+        const vn = g.ball.vx * nx + g.ball.vy * ny;
+        g.ball.vx -= 1.4 * vn * nx;
+        g.ball.vy -= 1.4 * vn * ny;
+      }
+    }
+
+    // anti-collage murs
+    if (g.ball.x <= BALL_RADIUS + 1 && g.ball.vx === 0) g.ball.vx = 0.4;
+    if (g.ball.x >= WIDTH - BALL_RADIUS - 1 && g.ball.vx === 0) g.ball.vx = -0.4;
+    if (g.ball.y <= BALL_RADIUS + 1 && g.ball.vy === 0) g.ball.vy = 0.4;
+    if (g.ball.y >= HEIGHT - BALL_RADIUS - 1 && g.ball.vy === 0) g.ball.vy = -0.4;
+
     // goal check
     const dx = g.ball.x - g.goal.x;
     const dy = g.ball.y - g.goal.y;
     const dist = Math.hypot(dx, dy);
-    if (dist < BALL_RADIUS + GOAL_RADIUS * 0.7) {
+    const inGoal = dist < BALL_RADIUS + GOAL_RADIUS * 0.9;
+    const stopped = Math.abs(g.ball.vx) + Math.abs(g.ball.vy) < 0.05;
+    if (inGoal && stopped) {
       const scorer = g.turn === "P1" ? "P2" : "P1";
       g.scores[scorer] += 1;
       g.ball = { x: WIDTH / 2, y: HEIGHT / 2, vx: 0, vy: 0 };
       g.goal = { x: WIDTH * (0.2 + Math.random() * 0.6), y: HEIGHT * (0.2 + Math.random() * 0.6) };
+      g.obstacles = randomObstacles();
       g.turn = g.turn === "P1" ? "P2" : "P1";
-      broadcast(roomCode, { type: "toast", message: `${scorer} marque !` });
+      broadcast(roomCode, { type: "toast", message: `${scorer} marque ! (${g.scores.P1}-${g.scores.P2})` });
+      if (g.scores[scorer] >= TARGET_SCORE) {
+        broadcast(roomCode, { type: "toast", message: `${scorer} gagne la partie !` });
+        g.scores = { P1: 0, P2: 0 };
+      }
     }
 
     broadcast(roomCode, { type: "state", game: g });
@@ -69,7 +138,9 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url || "/", "http://localhost");
   const roomCode = (url.searchParams.get("room") || "DEFAULT").toUpperCase();
   if (!rooms.has(roomCode)) {
-    rooms.set(roomCode, { players: [], game: makeGame(), loop: null });
+    const g = makeGame();
+    g.obstacles = randomObstacles();
+    rooms.set(roomCode, { players: [], game: g, loop: null });
   }
   const room = rooms.get(roomCode);
 
