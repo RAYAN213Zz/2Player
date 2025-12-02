@@ -7,7 +7,7 @@ const BALL_RADIUS = 14;
 const GOAL_RADIUS = 38;
 const WIDTH = 900;
 const HEIGHT = 600;
-const FRICTION = 0.987;
+const FRICTION = 0.99;
 const TARGET_SCORE = 5;
 const OBSTACLE_COUNT = 3;
 
@@ -169,8 +169,8 @@ wss.on("connection", (ws, req) => {
     }
     const g = room.game;
     if (msg.type === "throw" && g.turn === role) {
-      g.ball.vx = msg.vx * 8;
-      g.ball.vy = msg.vy * 8;
+      g.ball.vx = msg.vx * 6.5;
+      g.ball.vy = msg.vy * 6.5;
       g.turn = g.turn === "P1" ? "P2" : "P1";
       broadcast(roomCode, { type: "state", game: g });
     }

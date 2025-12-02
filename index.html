@@ -203,13 +203,10 @@ canvas.addEventListener("pointerup", (e) => {
     const dx = e.clientX - dragStart.x;
     const dy = e.clientY - dragStart.y;
     const dist = Math.hypot(dx, dy);
-    const power = Math.min(dist, 360) / 12;
-    // aide à viser : direction vers le but (suivre la flèche)
-    const dirX = game.goal.x - game.ball.x;
-    const dirY = game.goal.y - game.ball.y;
-    const norm = Math.max(1, Math.hypot(dirX, dirY));
-    const vx = (dirX / norm) * power;
-    const vy = (dirY / norm) * power;
+    const power = Math.min(dist, 280) / 14; // tir moins puissant
+    const norm = Math.max(1, dist);
+    const vx = dx / norm * power;
+    const vy = dy / norm * power;
     socket.send(JSON.stringify({ type: "throw", vx, vy }));
 });
 
