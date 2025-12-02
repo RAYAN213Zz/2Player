@@ -200,7 +200,8 @@ let game = {
     goal: { x: 0, y: 0 },
     turn: "P1",
     scores: { P1: 0, P2: 0 },
-    obstacles: []
+    obstacles: [],
+    ready: true
 };
 
 function resize() {
@@ -238,9 +239,12 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-    const moving = Math.abs(game.ball.vx) + Math.abs(game.ball.vy) > 0.1;
-    if (game.turn !== myPlayer || moving) {
-        logToast(moving ? "Attends que la balle s'arrête" : "Attends ton tour");
+    if (game.turn !== myPlayer) {
+        logToast("Attends ton tour");
+        return;
+    }
+    if (ballMoving()) {
+        logToast("Attends que la balle s'arrête");
         return;
     }
     const p = pointerPos(e);
@@ -370,6 +374,10 @@ document.getElementById("join").onclick = () => {
     if (!code) return logToast("Code requis");
     connect(code);
 };
+// bloquer le tir si la balle bouge encore côté client
+function ballMoving() {
+    return Math.abs(game.ball.vx) + Math.abs(game.ball.vy) > 0.05 || !game.ready;
+}
 document.getElementById("zoomIn").onclick = () => { zoomFactor = Math.min(1.4, zoomFactor + 0.1); resize(); };
 document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.5, zoomFactor - 0.1); resize(); };
 </script>

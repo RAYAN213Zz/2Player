@@ -21,6 +21,7 @@ function makeGame() {
     turn: "P1",
     scores: { P1: 0, P2: 0 },
     obstacles: [],
+    ready: true,
   };
 }
 
@@ -114,11 +115,18 @@ function startLoop(roomCode) {
       g.goal = { x: WIDTH * (0.2 + Math.random() * 0.6), y: HEIGHT * (0.2 + Math.random() * 0.6) };
       g.obstacles = randomObstacles();
       g.turn = g.turn === "P1" ? "P2" : "P1";
+      g.ready = true;
       broadcast(roomCode, { type: "toast", message: `${scorer} marque ! (${g.scores.P1}-${g.scores.P2})` });
       if (g.scores[scorer] >= TARGET_SCORE) {
         broadcast(roomCode, { type: "toast", message: `${scorer} gagne la partie !` });
         g.scores = { P1: 0, P2: 0 };
       }
+    }
+    const speed = Math.abs(g.ball.vx) + Math.abs(g.ball.vy);
+    if (!g.ready && speed < 0.05) {
+      g.ball.vx = 0;
+      g.ball.vy = 0;
+      g.ready = true;
     }
 
     broadcast(roomCode, { type: "state", game: g });
@@ -169,11 +177,11 @@ wss.on("connection", (ws, req) => {
     }
     const g = room.game;
     if (msg.type === "throw" && g.turn === role) {
-      const moving = Math.abs(g.ball.vx) + Math.abs(g.ball.vy) > 0.08;
-      if (moving) {
+      if (!g.ready) {
         try { ws.send(JSON.stringify({ type: "toast", message: "Attends que la balle s'arrete" })); } catch {}
         return;
       }
+      g.ready = false;
       g.ball.vx = msg.vx * 4;
       g.ball.vy = msg.vy * 4;
       const speed = Math.hypot(g.ball.vx, g.ball.vy);
