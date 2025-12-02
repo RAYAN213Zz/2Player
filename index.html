@@ -23,9 +23,10 @@
     header {
         position: fixed;
         top: 0; left: 0; right: 0;
-        height: 70px;
-        padding: 10px 12px;
+        min-height: 64px;
+        padding: 10px 12px 12px;
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
         align-items: center;
         background: rgba(9,12,22,0.65);
@@ -54,10 +55,10 @@
         border-radius: 10px;
         background: rgba(255,255,255,0.08);
         font-size: 14px;
-        min-width: 120px;
+        min-width: 110px;
         text-align: center;
     }
-    #info { display: flex; gap: 8px; align-items: center; }
+    #info { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     #info span {
         padding: 6px 10px;
         border-radius: 10px;
@@ -85,11 +86,24 @@
         font-size: 14px;
         display: none;
     }
+    #hint {
+        position: fixed;
+        bottom: 12px;
+        right: 12px;
+        padding: 10px 12px;
+        background: rgba(0,0,0,0.35);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        font-size: 12px;
+        max-width: 220px;
+        line-height: 1.4;
+        color: #dbe7ff;
+    }
 </style>
 </head>
 <body>
     <header>
-        <span id="status">Déconnecté</span>
+        <span id="status">Deconnecte</span>
         <div id="info">
             <span id="you">Vous: ?</span>
             <span id="turn">Tour: ?</span>
@@ -101,6 +115,7 @@
     </header>
     <canvas id="canvas"></canvas>
     <div id="toast"></div>
+    <div id="hint">Appuie près de la balle, glisse vers la direction voulue, relâche. Code salle pour jouer à 2.</div>
 
 <script>
 // ----------------------------------------------------
@@ -151,6 +166,7 @@ function connect(roomCode) {
 // Etat client
 // ----------------------------------------------------
 const canvas = document.getElementById("canvas");
+const headerEl = document.querySelector("header");
 const ctx = canvas.getContext("2d");
 let W = 0, H = 0;
 let game = {
@@ -162,8 +178,10 @@ let game = {
 };
 
 function resize() {
+    const top = headerEl.getBoundingClientRect().height;
+    canvas.style.top = `${top}px`;
     W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight - 70;
+    H = canvas.height = window.innerHeight - top;
 }
 resize();
 window.addEventListener("resize", resize);
@@ -191,7 +209,7 @@ canvas.addEventListener("pointerdown", (e) => {
     const p = pointerPos(e);
     const dx = p.x - game.ball.x;
     const dy = p.y - game.ball.y;
-    if (Math.hypot(dx, dy) > 45) return; // cliquer près de la balle
+    if (Math.hypot(dx, dy) > 55) return; // cliquer près de la balle (tolérance mobile)
     dragging = true;
     dragStart = { x: game.ball.x, y: game.ball.y, current: p };
 });
@@ -213,7 +231,7 @@ canvas.addEventListener("pointerup", (e) => {
     const dx = p.x - dragStart.x;
     const dy = p.y - dragStart.y;
     const dist = Math.hypot(dx, dy);
-    const power = Math.min(dist, 220) / 18; // tir plus court/controle
+    const power = Math.min(dist, 200) / 18; // encore plus soft pour mobile
     const norm = Math.max(1, dist);
     const vx = dx / norm * power;
     const vy = dy / norm * power;
