@@ -327,6 +327,7 @@ let zoomFactor = 1;
 let currentPower = 0;
 let queuedItem = null;
 let isOwner = false;
+let createdRoom = false;
 
 const menu = document.getElementById("menu");
 
@@ -386,6 +387,7 @@ function connect(roomCode) {
         if (msg.type === "welcome") {
             myPlayer = msg.player;
             setYou("Vous: " + myPlayer);
+            if (createdRoom) isOwner = true;
         }
         if (msg.type === "state") applyState(msg.game);
         if (msg.type === "toast") logToast(msg.message);
@@ -427,12 +429,22 @@ resize();
 window.addEventListener("resize", resize);
 
 function applyState(g) {
-    game = g;
-    isOwner = g.owner === myPlayer;
-    const phaseLabel = g.phase === "waiting" ? "Phase: attente" : g.phase === "playing" ? "Phase: en cours" : `Terminé: ${g.winner || "-"}`;
+    // normalise l'état pour supporter l'ancien serveur (2 joueurs, 1 balle)
+    const normalized = { ...g };
+    normalized.phase = g.phase || "playing";
+    if (!g.players || !g.players.length) {
+        if (g.ball) {
+            normalized.players = [{ id: myPlayer || g.turn || "P1", ball: g.ball }];
+        } else {
+            normalized.players = [];
+        }
+    }
+    game = normalized;
+    isOwner = g.owner ? g.owner === myPlayer : createdRoom;
+    const phaseLabel = game.phase === "waiting" ? "Phase: attente" : game.phase === "playing" ? "Phase: en cours" : `Terminé: ${game.winner || "-"}`;
     setTurn(phaseLabel);
-    setScore(`Joueurs: ${g.players?.length || 0}`);
-    if (g.winner) logToast(`Victoire: ${g.winner}`);
+    setScore(`Joueurs: ${game.players?.length || 0}`);
+    if (game.winner) logToast(`Victoire: ${game.winner}`);
     checkItemPickup();
 }
 
@@ -621,9 +633,11 @@ draw();
 document.getElementById("create").onclick = () => {
     const code = Math.random().toString(36).slice(2, 8).toUpperCase();
     document.getElementById("room").value = code;
+    createdRoom = true;
     connect(code);
 };
 document.getElementById("join").onclick = () => {
+    createdRoom = false;
     const code = document.getElementById("room").value.trim().toUpperCase();
     connect(code);
 };
