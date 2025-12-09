@@ -230,6 +230,21 @@
         backdrop-filter: blur(6px);
     }
     #itemLabel { font-weight: 700; }
+    #countdown {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: 72px;
+        font-weight: 800;
+        color: var(--text);
+        text-shadow: 0 10px 30px rgba(0,0,0,0.55);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 140ms ease;
+        z-index: 25;
+    }
+    #countdown.show { opacity: 1; }
     #zoomControls {
         position: fixed;
         bottom: calc(12px + env(safe-area-inset-bottom));
@@ -304,6 +319,7 @@
     <div id="items">
         <span id="itemLabel">Mode: multi libre · En attente du lancement</span>
     </div>
+    <div id="countdown"></div>
     <div id="toast"></div>
     <div id="hint">Appuie près de la balle, glisse en tirant vers l'arrière pour viser (couleur = puissance), relâche. Code salle pour jouer à deux.</div>
     <div id="zoomControls">
@@ -328,6 +344,8 @@ let currentPower = 0;
 let queuedItem = null;
 let isOwner = false;
 let createdRoom = false;
+let countdownTimer = null;
+let countdownValue = null;
 
 const menu = document.getElementById("menu");
 
@@ -446,6 +464,7 @@ function applyState(g) {
     setScore(`Joueurs: ${game.players?.length || 0}`);
     if (game.winner) logToast(`Victoire: ${game.winner}`);
     checkItemPickup();
+    ensurePlayerPositions();
 }
 
 // ----------------------------------------------------
@@ -622,6 +641,14 @@ function draw() {
         ctx.stroke();
         ctx.setLineDash([]);
     }
+    // show countdown text if set
+    if (countdownValue) {
+        ctx.font = "48px sans-serif";
+        ctx.fillStyle = "#ffffffcc";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(countdownValue, BASE_W / 2, BASE_H / 2);
+    }
     ctx.restore();
     requestAnimationFrame(draw);
 }
@@ -652,6 +679,7 @@ startBtn.onclick = () => {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "start" }));
     }
+    if (game.phase !== "playing") startCountdown();
 };
 document.querySelector(".card").appendChild(startBtn);
 
@@ -715,6 +743,53 @@ function checkItemPickup() {
 }
 
 updateItemLabel();
+
+function ensurePlayerPositions() {
+    if (!game.players) game.players = [];
+    const margin = 80;
+    game.players.forEach(p => {
+        if (!p.ball) {
+            p.ball = {
+                x: margin + Math.random() * (BASE_W - margin * 2),
+                y: margin + Math.random() * (BASE_H - margin * 2),
+                vx: 0, vy: 0
+            };
+        }
+    });
+    if (!game.players.length && myPlayer) {
+        game.players.push({
+            id: myPlayer,
+            ball: {
+                x: margin + Math.random() * (BASE_W - margin * 2),
+                y: margin + Math.random() * (BASE_H - margin * 2),
+                vx: 0, vy: 0
+            }
+        });
+    }
+}
+
+function startCountdown() {
+    const cd = document.getElementById("countdown");
+    const seq = ["3", "2", "1", "GO"];
+    let idx = 0;
+    clearTimeout(countdownTimer);
+    countdownValue = seq[idx];
+    cd.textContent = countdownValue;
+    cd.classList.add("show");
+    game.phase = "playing";
+    const step = () => {
+        idx += 1;
+        if (idx >= seq.length) {
+            cd.classList.remove("show");
+            countdownValue = null;
+            return;
+        }
+        countdownValue = seq[idx];
+        cd.textContent = countdownValue;
+        countdownTimer = setTimeout(step, 700);
+    };
+    countdownTimer = setTimeout(step, 700);
+}
 </script>
 </body>
 </html>
