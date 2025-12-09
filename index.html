@@ -220,17 +220,16 @@
         transform: translateX(-50%);
         bottom: calc(70px + env(safe-area-inset-bottom));
         display: flex;
+        align-items: center;
         gap: 10px;
         z-index: 14;
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 8px 12px;
+        backdrop-filter: blur(6px);
     }
-    #trap {
-        padding: 10px 14px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,138,201,0.16);
-        color: var(--text);
-        font-weight: 700;
-    }
+    #itemLabel { font-weight: 700; }
     #zoomControls {
         position: fixed;
         bottom: calc(12px + env(safe-area-inset-bottom));
@@ -280,8 +279,8 @@
             <div class="meta">
                 <span class="pill" id="status">Déconnecté</span>
                 <span class="pill" id="you">Vous: -</span>
-                <span class="pill" id="turn">Tour: -</span>
-                <span class="pill"><strong id="score">0 - 0</strong></span>
+                <span class="pill" id="turn">Phase: attente</span>
+                <span class="pill"><strong id="score">Joueurs: 0</strong></span>
             </div>
             <div style="margin-top: 16px;">
                 <button id="play" class="primary" style="width: 100%;">Afficher l'arène</button>
@@ -292,8 +291,8 @@
     <header id="hud">
         <span class="tag" id="hudStatus">Déconnecté</span>
         <span class="tag" id="hudYou">Vous: -</span>
-        <span class="tag" id="hudTurn">Tour: -</span>
-        <span class="tag" id="hudScore">0 - 0</span>
+        <span class="tag" id="hudTurn">Phase: attente</span>
+        <span class="tag" id="hudScore">Joueurs: 0</span>
         <button id="openMenu">Menu</button>
     </header>
 
@@ -303,7 +302,7 @@
         <span id="powerLabel">Puissance: 0%</span>
     </div>
     <div id="items">
-        <button id="trap">Item: x2 vitesse adverse</button>
+        <span id="itemLabel">Mode: multi libre · En attente du lancement</span>
     </div>
     <div id="toast"></div>
     <div id="hint">Appuie près de la balle, glisse en tirant vers l'arrière pour viser (couleur = puissance), relâche. Code salle pour jouer à deux.</div>
@@ -326,7 +325,8 @@ let offsetX = 0;
 let offsetY = 0;
 let zoomFactor = 1;
 let currentPower = 0;
-let trapReady = false;
+let queuedItem = null;
+let isOwner = false;
 
 const menu = document.getElementById("menu");
 
@@ -354,11 +354,14 @@ function setTurn(text, color) {
         document.getElementById("turn").style.color = color;
         document.getElementById("hudTurn").style.color = color;
     }
-    updateTrapLabel();
 }
 function setScore(text) {
     document.getElementById("score").textContent = text;
     document.getElementById("hudScore").textContent = text;
+}
+function updateItemLabel() {
+    const label = document.getElementById("itemLabel");
+    label.textContent = queuedItem ? `Item: ${queuedItem}` : "Item: aucun";
 }
 
 function connect(roomCode) {
@@ -386,6 +389,10 @@ function connect(roomCode) {
         }
         if (msg.type === "state") applyState(msg.game);
         if (msg.type === "toast") logToast(msg.message);
+        if (msg.type === "items") {
+            // optionnel si le serveur pousse la liste des items
+            game.items = msg.items;
+        }
     };
 }
 
@@ -396,12 +403,14 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 let W = 0, H = 0;
 let game = {
-    ball: { x: 0, y: 0, vx: 0, vy: 0 },
+    players: [],
     goal: { x: 0, y: 0 },
-    turn: "P1",
-    scores: { P1: 0, P2: 0 },
     obstacles: [],
-    ready: true
+    items: [],
+    ready: true,
+    phase: "waiting", // waiting | playing | ended
+    owner: null,
+    winner: null
 };
 
 function resize() {
@@ -419,21 +428,19 @@ window.addEventListener("resize", resize);
 
 function applyState(g) {
     game = g;
-    setTurn("Tour: " + game.turn, game.turn === "P1" ? "var(--p1)" : "var(--p2)");
-    setScore(`${game.scores.P1} - ${game.scores.P2}`);
-    if (trapReady && game.turn === myPlayer) {
-        // le piège se déclenche quand l'adversaire a joué
-        trapReady = false;
-        logToast("Piège x2 déclenché sur l'adversaire");
-        updateTrapLabel();
-    }
+    isOwner = g.owner === myPlayer;
+    const phaseLabel = g.phase === "waiting" ? "Phase: attente" : g.phase === "playing" ? "Phase: en cours" : `Terminé: ${g.winner || "-"}`;
+    setTurn(phaseLabel);
+    setScore(`Joueurs: ${g.players?.length || 0}`);
+    if (g.winner) logToast(`Victoire: ${g.winner}`);
+    checkItemPickup();
 }
 
 // ----------------------------------------------------
 // Input
 // ----------------------------------------------------
 let dragging = false;
-let dragStart = null; // centre de la balle au départ du drag
+let dragStart = null; // centre de ma balle au départ du drag
 
 function pointerPos(e) {
     const r = canvas.getBoundingClientRect();
@@ -443,20 +450,19 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-    if (game.turn !== myPlayer) {
-        logToast("Attends ton tour");
-        return;
-    }
+    const me = game.players?.find(p => p.id === myPlayer);
+    if (!me) return logToast("Pas de balle assignée");
+    if (game.phase !== "playing") return logToast("Partie non démarrée");
     if (ballMoving()) {
-        logToast("Attends que la balle s'arrête");
+        logToast("Attends que ta balle s'arrête");
         return;
     }
     const p = pointerPos(e);
-    const dx = p.x - game.ball.x;
-    const dy = p.y - game.ball.y;
+    const dx = p.x - me.ball.x;
+    const dy = p.y - me.ball.y;
     if (Math.hypot(dx, dy) > 55) return; // cliquer près de la balle (tolérance mobile)
     dragging = true;
-    dragStart = { x: game.ball.x, y: game.ball.y, current: p };
+    dragStart = { x: me.ball.x, y: me.ball.y, current: p };
     updatePower(p);
 });
 
@@ -475,15 +481,24 @@ canvas.addEventListener("pointerup", (e) => {
         logToast("Pas connecté");
         return;
     }
+    const me = game.players?.find(p => p.id === myPlayer);
+    if (!me) return logToast("Pas de balle assignée");
     const p = pointerPos(e);
     const dx = p.x - dragStart.x;
     const dy = p.y - dragStart.y;
     const dist = Math.hypot(dx, dy);
     const power = Math.min(dist, 50) / 24; // doux
     const norm = Math.max(1, dist);
-    const vx = -(dx / norm) * power; // inversé: on vise en tirant vers l'arrière
-    const vy = -(dy / norm) * power;
-    socket.send(JSON.stringify({ type: "throw", vx, vy }));
+    const sign = queuedItem === "invert" ? 1 : -1; // item inverse annule l'inversion
+    const speedMul = queuedItem === "speed" ? 2 : 1;
+    const vx = sign * speedMul * (dx / norm) * power; // inversé par défaut
+    const vy = sign * speedMul * (dy / norm) * power;
+    socket.send(JSON.stringify({ type: "throw", vx, vy, id: myPlayer }));
+    if (queuedItem) {
+        logToast(`Item consommé: ${queuedItem}`);
+        queuedItem = null;
+        updateItemLabel();
+    }
 });
 
 // ----------------------------------------------------
@@ -521,42 +536,73 @@ function draw() {
         ctx.stroke();
     });
 
-    // ball
-    ctx.beginPath();
-    ctx.arc(game.ball.x, game.ball.y, 14, 0, Math.PI * 2);
-    ctx.fillStyle = game.turn === "P1" ? "var(--p1)" : "var(--p2)";
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = game.turn === "P1" ? "var(--p2)" : "var(--p1)";
-    ctx.stroke();
+    // items
+    game.items?.forEach(it => {
+        ctx.beginPath();
+        ctx.arc(it.x, it.y, 14, 0, Math.PI * 2);
+        const c = it.type === "speed" ? "#ffda7c" : it.type === "invert" ? "#7cf4ff" : "#ff7a7a";
+        ctx.fillStyle = c + "44";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = c;
+        ctx.stroke();
+        ctx.fillStyle = c;
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const icon = it.type === "speed" ? "⏩" : it.type === "invert" ? "⇆" : "★";
+        ctx.fillText(icon, it.x, it.y);
+    });
 
-    // direction hint
-    ctx.beginPath();
-    ctx.moveTo(game.ball.x, game.ball.y);
-    const dirX = game.goal.x - game.ball.x;
-    const dirY = game.goal.y - game.ball.y;
-    const mag = Math.max(1, Math.hypot(dirX, dirY));
-    const arrowLen = 50;
-    const ax = game.ball.x + (dirX / mag) * arrowLen;
-    const ay = game.ball.y + (dirY / mag) * arrowLen;
-    ctx.lineTo(ax, ay);
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // head
-    const headSize = 8;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - (dirX / mag) * headSize - (dirY / mag) * headSize * 0.6, ay - (dirY / mag) * headSize + (dirX / mag) * headSize * 0.6);
-    ctx.lineTo(ax - (dirX / mag) * headSize + (dirY / mag) * headSize * 0.6, ay - (dirY / mag) * headSize - (dirX / mag) * headSize * 0.6);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fill();
+    // balls
+    const palette = ["#7eff7a", "#ff7ad1", "#7cf4ff", "#ffda7c", "#ffa57a", "#b07cff", "#7affd0"];
+    game.players?.forEach((p, idx) => {
+        ctx.beginPath();
+        ctx.arc(p.ball.x, p.ball.y, 14, 0, Math.PI * 2);
+        const col = palette[idx % palette.length];
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = p.id === myPlayer ? "#ffffff" : "rgba(255,255,255,0.4)";
+        ctx.stroke();
+
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "#ffffffcc";
+        ctx.fillText(p.id === myPlayer ? "toi" : p.id, p.ball.x, p.ball.y + 16);
+    });
+
+    // direction hint for me
+    const me = game.players?.find(p => p.id === myPlayer);
+    if (me) {
+        ctx.beginPath();
+        ctx.moveTo(me.ball.x, me.ball.y);
+        const dirX = game.goal.x - me.ball.x;
+        const dirY = game.goal.y - me.ball.y;
+        const mag = Math.max(1, Math.hypot(dirX, dirY));
+        const arrowLen = 50;
+        const ax = me.ball.x + (dirX / mag) * arrowLen;
+        const ay = me.ball.y + (dirY / mag) * arrowLen;
+        ctx.lineTo(ax, ay);
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // head
+        const headSize = 8;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - (dirX / mag) * headSize - (dirY / mag) * headSize * 0.6, ay - (dirY / mag) * headSize + (dirX / mag) * headSize * 0.6);
+        ctx.lineTo(ax - (dirX / mag) * headSize + (dirY / mag) * headSize * 0.6, ay - (dirY / mag) * headSize - (dirX / mag) * headSize * 0.6);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fill();
+    }
 
     // drag helper
     if (dragging && dragStart?.current) {
         ctx.beginPath();
-        ctx.moveTo(game.ball.x, game.ball.y);
+        ctx.moveTo(dragStart.x, dragStart.y);
         ctx.lineTo(dragStart.current.x, dragStart.current.y);
         ctx.strokeStyle = powerColor(currentPower, 0.8);
         ctx.setLineDash([6, 6]);
@@ -583,17 +629,23 @@ document.getElementById("join").onclick = () => {
 };
 document.getElementById("play").onclick = () => menu.classList.add("hidden");
 document.getElementById("openMenu").onclick = () => menu.classList.remove("hidden");
-document.getElementById("trap").onclick = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return logToast("Pas connecté");
-    trapReady = true;
-    socket.send(JSON.stringify({ type: "item", effect: "speedx2" }));
-    logToast("Piège x2 envoyé (prochain tir adverse)");
-    updateTrapLabel();
+const startBtn = document.createElement("button");
+startBtn.textContent = "Commencer";
+startBtn.className = "primary";
+startBtn.style.marginTop = "10px";
+startBtn.onclick = () => {
+    if (!isOwner) return logToast("Seul le owner peut démarrer");
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "start" }));
+    }
 };
+document.querySelector(".card").appendChild(startBtn);
 
 // bloquer le tir si la balle bouge encore côté client
 function ballMoving() {
-    return Math.abs(game.ball.vx) + Math.abs(game.ball.vy) > 0.05 || !game.ready;
+    const me = game.players?.find(p => p.id === myPlayer);
+    if (!me) return false;
+    return Math.abs(me.ball.vx) + Math.abs(me.ball.vy) > 0.05 || !game.ready;
 }
 document.getElementById("zoomIn").onclick = () => { zoomFactor = Math.min(1.4, zoomFactor + 0.1); resize(); };
 document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.55, zoomFactor - 0.1); resize(); };
@@ -626,16 +678,29 @@ function powerColor(p, alpha = 1) {
     return hex + val;
 }
 
-function updateTrapLabel() {
-    const btn = document.getElementById("trap");
-    if (trapReady) {
-        btn.textContent = game.turn !== myPlayer ? "Piège actif sur l'adversaire" : "Piège prêt (attente tir adverse)";
-        btn.style.background = "rgba(255,138,201,0.28)";
-    } else {
-        btn.textContent = "Item: x2 vitesse adverse";
-        btn.style.background = "rgba(255,138,201,0.16)";
+function checkItemPickup() {
+    if (!game.items || !game.items.length) return;
+    const me = game.players?.find(p => p.id === myPlayer);
+    if (!me) return;
+    const picked = [];
+    game.items.forEach((it, idx) => {
+        const dx = it.x - me.ball.x;
+        const dy = it.y - me.ball.y;
+        if (Math.hypot(dx, dy) < 22) picked.push(idx);
+    });
+    if (!picked.length) return;
+    const grabIdx = picked[0];
+    const item = game.items[grabIdx];
+    queuedItem = item.type || "boost";
+    game.items.splice(grabIdx, 1);
+    updateItemLabel();
+    logToast(`Item ramassé: ${queuedItem}`);
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "itemPickup", item: queuedItem }));
     }
 }
+
+updateItemLabel();
 </script>
 </body>
 </html>
