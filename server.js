@@ -1,60 +1,56 @@
 import { WebSocketServer } from "ws";
+import { createServer } from "http";
+import { readFile } from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 import { nanoid } from "nanoid";
 
-const PORT = process.env.PORT || 10000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PUBLIC_DIR = path.join(__dirname, "public");
+
+const PORT = process.env.PORT || 5000;
 const TICK = 1000 / 60;
 const BALL_RADIUS = 14;
 const GOAL_RADIUS = 38;
 const WIDTH = 900;
 const HEIGHT = 600;
 const FRICTION = 0.992;
-const TARGET_SCORE = 5;
-const OBSTACLE_COUNT = 3;
+const MAX_PLAYERS = 30;
 
-const wss = new WebSocketServer({ port: PORT });
-const rooms = new Map(); // roomCode -> { players: [{id, ws, role}], game, loop }
+// roomCode -> { players: [{id, ws, ball}], game, loop }
+const rooms = new Map();
+
+const httpServer = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+    let filePath = path.join(PUBLIC_DIR, url.pathname === "/" ? "/index.html" : url.pathname);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime =
+      ext === ".html" ? "text/html" :
+      ext === ".css" ? "text/css" :
+      ext === ".js" ? "application/javascript" :
+      ext === ".json" ? "application/json" :
+      "text/plain";
+    const data = await readFile(filePath);
+    res.writeHead(200, { "Content-Type": mime });
+    res.end(data);
+  } catch (e) {
+    res.writeHead(404);
+    res.end("Not found");
+  }
+});
+
+const wss = new WebSocketServer({ server: httpServer });
 
 function makeGame() {
   return {
-    ball: { x: WIDTH / 2, y: HEIGHT / 2, vx: 0, vy: 0 },
-    goal: { x: WIDTH * 0.8, y: HEIGHT / 2 },
-    turn: "P1",
-    scores: { P1: 0, P2: 0 },
+    players: [],
+    goal: { x: WIDTH * 0.8, y: HEIGHT * 0.5 },
     obstacles: [],
-    ready: true,
+    phase: "waiting", // waiting | playing | ended
+    winner: null,
   };
-}
-
-function randomObstacles() {
-  const obs = [];
-  let tries = 0;
-  while (obs.length < OBSTACLE_COUNT && tries < 200) {
-    tries++;
-    const w = 120;
-    const h = 24;
-    const x = 80 + Math.random() * (WIDTH - 160 - w);
-    const y = 80 + Math.random() * (HEIGHT - 160 - h);
-    const rect = { x, y, w, h };
-    const tooCloseGoal = distanceRectCircle(rect, { x: WIDTH * 0.8, y: HEIGHT / 2, r: GOAL_RADIUS + 60 });
-    const tooCloseCenter = distanceRectCircle(rect, { x: WIDTH / 2, y: HEIGHT / 2, r: 140 });
-    const overlapOther = obs.some(o => rectsOverlap(o, rect));
-    if (!tooCloseGoal && !tooCloseCenter && !overlapOther) {
-      obs.push(rect);
-    }
-  }
-  return obs;
-}
-
-function rectsOverlap(a, b) {
-  return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
-}
-
-function distanceRectCircle(rect, circle) {
-  const cx = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
-  const cy = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
-  const dx = circle.x - cx;
-  const dy = circle.y - cy;
-  return Math.hypot(dx, dy) < circle.r;
 }
 
 function startLoop(roomCode) {
@@ -62,107 +58,141 @@ function startLoop(roomCode) {
   if (!room || room.loop) return;
   room.loop = setInterval(() => {
     const g = room.game;
-    g.ball.x += g.ball.vx;
-    g.ball.y += g.ball.vy;
-    g.ball.vx *= FRICTION;
-    g.ball.vy *= FRICTION;
-    if (Math.abs(g.ball.vx) < 0.02) g.ball.vx = 0;
-    if (Math.abs(g.ball.vy) < 0.02) g.ball.vy = 0;
 
-    // murs
-    if (g.ball.x < BALL_RADIUS) { g.ball.x = BALL_RADIUS; g.ball.vx *= -0.7; }
-    if (g.ball.x > WIDTH - BALL_RADIUS) { g.ball.x = WIDTH - BALL_RADIUS; g.ball.vx *= -0.7; }
-    if (g.ball.y < BALL_RADIUS) { g.ball.y = BALL_RADIUS; g.ball.vy *= -0.7; }
-    if (g.ball.y > HEIGHT - BALL_RADIUS) { g.ball.y = HEIGHT - BALL_RADIUS; g.ball.vy *= -0.7; }
+    // Physique pour chaque balle
+    for (const p of g.players) {
+      const b = p.ball;
+      b.x += b.vx;
+      b.y += b.vy;
+      b.vx *= FRICTION;
+      b.vy *= FRICTION;
+      if (Math.abs(b.vx) < 0.02) b.vx = 0;
+      if (Math.abs(b.vy) < 0.02) b.vy = 0;
 
-    // obstacles
-    for (const o of g.obstacles) {
-      const nearestX = Math.max(o.x, Math.min(g.ball.x, o.x + o.w));
-      const nearestY = Math.max(o.y, Math.min(g.ball.y, o.y + o.h));
-      const dx = g.ball.x - nearestX;
-      const dy = g.ball.y - nearestY;
-      const dist = Math.hypot(dx, dy);
-      if (dist < BALL_RADIUS) {
-        // resolve
-        const overlap = BALL_RADIUS - dist + 0.5;
-        const nx = dist === 0 ? 1 : dx / dist;
-        const ny = dist === 0 ? 0 : dy / dist;
-        g.ball.x += nx * overlap;
-        g.ball.y += ny * overlap;
-        // bounce
-        const vn = g.ball.vx * nx + g.ball.vy * ny;
-        g.ball.vx -= 1.4 * vn * nx;
-        g.ball.vy -= 1.4 * vn * ny;
+      // murs
+      if (b.x < BALL_RADIUS) { b.x = BALL_RADIUS; b.vx *= -0.7; }
+      if (b.x > WIDTH - BALL_RADIUS) { b.x = WIDTH - BALL_RADIUS; b.vx *= -0.7; }
+      if (b.y < BALL_RADIUS) { b.y = BALL_RADIUS; b.vy *= -0.7; }
+      if (b.y > HEIGHT - BALL_RADIUS) { b.y = HEIGHT - BALL_RADIUS; b.vy *= -0.7; }
+
+      // obstacles (rectangles)
+      for (const o of g.obstacles) {
+        const nearestX = Math.max(o.x, Math.min(b.x, o.x + o.w));
+        const nearestY = Math.max(o.y, Math.min(b.y, o.y + o.h));
+        const dx = b.x - nearestX;
+        const dy = b.y - nearestY;
+        const dist = Math.hypot(dx, dy);
+        if (dist < BALL_RADIUS) {
+          const overlap = BALL_RADIUS - dist + 0.5;
+          const nx = dist === 0 ? 1 : dx / dist;
+          const ny = dist === 0 ? 0 : dy / dist;
+          b.x += nx * overlap;
+          b.y += ny * overlap;
+          const vn = b.vx * nx + b.vy * ny;
+          b.vx -= 1.4 * vn * nx;
+          b.vy -= 1.4 * vn * ny;
+        }
+      }
+
+      // goal
+      const dxg = b.x - g.goal.x;
+      const dyg = b.y - g.goal.y;
+      const distg = Math.hypot(dxg, dyg);
+      const inGoal = distg < BALL_RADIUS + GOAL_RADIUS * 0.9;
+      const stopped = Math.abs(b.vx) + Math.abs(b.vy) < 0.05;
+      if (inGoal && stopped && !g.winner && g.phase === "playing") {
+        g.winner = p.id;
+        g.phase = "ended";
+        broadcast(roomCode, { type: "toast", message: `${p.id} gagne !` });
       }
     }
 
-    // anti-collage murs
-    if (g.ball.x <= BALL_RADIUS + 1 && g.ball.vx === 0) g.ball.vx = 0.4;
-    if (g.ball.x >= WIDTH - BALL_RADIUS - 1 && g.ball.vx === 0) g.ball.vx = -0.4;
-    if (g.ball.y <= BALL_RADIUS + 1 && g.ball.vy === 0) g.ball.vy = 0.4;
-    if (g.ball.y >= HEIGHT - BALL_RADIUS - 1 && g.ball.vy === 0) g.ball.vy = -0.4;
-
-    // goal check
-    const dx = g.ball.x - g.goal.x;
-    const dy = g.ball.y - g.goal.y;
-    const dist = Math.hypot(dx, dy);
-    const inGoal = dist < BALL_RADIUS + GOAL_RADIUS * 0.9;
-    const stopped = Math.abs(g.ball.vx) + Math.abs(g.ball.vy) < 0.05;
-    if (inGoal && stopped) {
-      const scorer = g.turn === "P1" ? "P2" : "P1";
-      g.scores[scorer] += 1;
-      g.ball = { x: WIDTH / 2, y: HEIGHT / 2, vx: 0, vy: 0 };
-      g.goal = { x: WIDTH * (0.2 + Math.random() * 0.6), y: HEIGHT * (0.2 + Math.random() * 0.6) };
-      g.obstacles = randomObstacles();
-      g.turn = g.turn === "P1" ? "P2" : "P1";
-      g.ready = true;
-      broadcast(roomCode, { type: "toast", message: `${scorer} marque ! (${g.scores.P1}-${g.scores.P2})` });
-      if (g.scores[scorer] >= TARGET_SCORE) {
-        broadcast(roomCode, { type: "toast", message: `${scorer} gagne la partie !` });
-        g.scores = { P1: 0, P2: 0 };
-      }
-    }
-    const speed = Math.abs(g.ball.vx) + Math.abs(g.ball.vy);
-    if (!g.ready && speed < 0.05) {
-      g.ball.vx = 0;
-      g.ball.vy = 0;
-      g.ready = true;
-    }
+    resolvePlayerCollisions(g);
 
     broadcast(roomCode, { type: "state", game: g });
   }, TICK);
+}
+
+function randomObstacles() {
+  const obs = [];
+  for (let i = 0; i < 3; i++) {
+    const w = 150;
+    const h = 28;
+    const x = 120 + Math.random() * (WIDTH - 240 - w);
+    const y = 180 + Math.random() * (HEIGHT - 260 - h);
+    obs.push({ x, y, w, h });
+  }
+  return obs;
+}
+
+function resolvePlayerCollisions(game) {
+  for (let i = 0; i < game.players.length; i++) {
+    for (let j = i + 1; j < game.players.length; j++) {
+      const a = game.players[i].ball;
+      const b = game.players[j].ball;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = BALL_RADIUS * 2;
+      if (dist > 0 && dist < minDist) {
+        const overlap = (minDist - dist) / 2;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        a.x -= nx * overlap;
+        a.y -= ny * overlap;
+        b.x += nx * overlap;
+        b.y += ny * overlap;
+        const avn = a.vx * nx + a.vy * ny;
+        const bvn = b.vx * nx + b.vy * ny;
+        const dv = bvn - avn;
+        a.vx += dv * nx;
+        a.vy += dv * ny;
+        b.vx -= dv * nx;
+        b.vy -= dv * ny;
+      }
+    }
+  }
 }
 
 function broadcast(roomCode, msg) {
   const room = rooms.get(roomCode);
   if (!room) return;
   const data = JSON.stringify(msg);
-  room.players.forEach((p) => {
-    if (p.ws.readyState === p.ws.OPEN) p.ws.send(data);
-  });
+  for (const p of room.players) {
+    if (p.ws.readyState === p.ws.OPEN) {
+      p.ws.send(data);
+    }
+  }
 }
 
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url || "/", "http://localhost");
   const roomCode = (url.searchParams.get("room") || "DEFAULT").toUpperCase();
+
   if (!rooms.has(roomCode)) {
     const g = makeGame();
     g.obstacles = randomObstacles();
     rooms.set(roomCode, { players: [], game: g, loop: null });
   }
-  const room = rooms.get(roomCode);
 
-  if (room.players.length >= 2) {
+  const room = rooms.get(roomCode);
+  if (room.players.length >= MAX_PLAYERS) {
     ws.send(JSON.stringify({ type: "toast", message: "Salle pleine" }));
     ws.close();
     return;
   }
 
-  const id = nanoid(6);
-  const role = room.players.length === 0 ? "P1" : "P2";
-  room.players.push({ id, ws, role });
+  const role = `P${room.players.length + 1}`;
+  const ball = {
+    x: WIDTH * (0.2 + Math.random() * 0.6),
+    y: HEIGHT * (0.2 + Math.random() * 0.6),
+    vx: 0,
+    vy: 0,
+  };
+  room.players.push({ id: role, ws, role, ball });
+  room.game.players = room.players.map(p => ({ id: p.role, ball: p.ball }));
 
-  ws.send(JSON.stringify({ type: "welcome", id, player: role }));
+  ws.send(JSON.stringify({ type: "welcome", player: role, owner: role === "P1" }));
   ws.send(JSON.stringify({ type: "state", game: room.game }));
   broadcast(roomCode, { type: "toast", message: `${role} a rejoint` });
 
@@ -170,36 +200,42 @@ wss.on("connection", (ws, req) => {
 
   ws.on("message", (raw) => {
     let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    const g = room.game;
+
+    if (msg.type === "start") {
+      g.phase = "playing";
+      g.winner = null;
+      broadcast(roomCode, { type: "start" });
+      broadcast(roomCode, { type: "state", game: g });
       return;
     }
-    const g = room.game;
-    if (msg.type === "throw" && g.turn === role) {
-      if (!g.ready) {
-        try { ws.send(JSON.stringify({ type: "toast", message: "Attends que la balle s'arrete" })); } catch {}
-        return;
-      }
-      g.ready = false;
-      g.ball.vx = msg.vx * 4;
-      g.ball.vy = msg.vy * 4;
-      const speed = Math.hypot(g.ball.vx, g.ball.vy);
-      const maxSpeed = 12;
+
+    if (msg.type === "throw") {
+      const player = room.players.find(p => p.role === msg.id);
+      if (!player) return;
+      if (g.phase !== "playing" || g.winner) return;
+      const b = player.ball;
+      b.vx = (msg.vx || 0) * 4;
+      b.vy = (msg.vy || 0) * 4;
+      const speed = Math.hypot(b.vx, b.vy);
+      const maxSpeed = 14;
       if (speed > maxSpeed) {
         const k = maxSpeed / speed;
-        g.ball.vx *= k;
-        g.ball.vy *= k;
+        b.vx *= k;
+        b.vy *= k;
       }
-      g.turn = g.turn === "P1" ? "P2" : "P1";
+      g.players = room.players.map(p => ({ id: p.role, ball: p.ball }));
       broadcast(roomCode, { type: "state", game: g });
+      return;
     }
   });
 
   ws.on("close", () => {
     if (!rooms.has(roomCode)) return;
     const r = rooms.get(roomCode);
-    r.players = r.players.filter((p) => p.id !== id);
+    r.players = r.players.filter((p) => p.role !== role);
+    r.game.players = r.players.map(p => ({ id: p.role, ball: p.ball }));
     broadcast(roomCode, { type: "toast", message: `${role} a quitté` });
     if (r.players.length === 0) {
       clearInterval(r.loop);
@@ -208,4 +244,6 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-console.log(`WebSocket server running on :${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`HTTP + WS server on http://localhost:${PORT}`);
+});

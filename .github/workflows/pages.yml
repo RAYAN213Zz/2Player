@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+﻿name: Deploy to GitHub Pages
 
 on:
   push:
@@ -24,8 +24,8 @@ jobs:
       - name: Préparer les fichiers statiques
         run: |
           mkdir -p site
-          cp index.html manifest.json README.md site/
-          # Ajoute ici d'autres assets si tu en ajoutes (icônes, images, etc.)
+          cp -r public/* site/
+          cp README.md site/ || true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
