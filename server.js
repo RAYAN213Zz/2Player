@@ -20,6 +20,7 @@ const MAX_PLAYERS = 30;
 const ITEM_RADIUS = 18;
 const FREEZE_MS = 4000;
 const ITEM_RESPAWN_MS = 6000;
+const FIRST_ITEM_DELAY_MS = 1200;
 
 // roomCode -> { players: [{id, ws, ball}], game, loop }
 const rooms = new Map();
@@ -137,6 +138,7 @@ function startLoop(roomCode) {
     // spawn item
     if (g.items.length === 0 && now >= room.nextItemAt) {
       g.items.push(makeFreezeItem());
+      scheduleNextItem(room);
     }
 
     broadcast(roomCode, { type: "state", game: g });
@@ -230,7 +232,7 @@ wss.on("connection", (ws, req) => {
   if (!rooms.has(roomCode)) {
     const g = makeGame();
     g.obstacles = randomObstacles();
-    rooms.set(roomCode, { players: [], game: g, loop: null, nextItemAt: Date.now() + ITEM_RESPAWN_MS });
+    rooms.set(roomCode, { players: [], game: g, loop: null, nextItemAt: Date.now() + FIRST_ITEM_DELAY_MS });
   }
 
   const room = rooms.get(roomCode);
@@ -274,6 +276,8 @@ wss.on("connection", (ws, req) => {
       if (!player) return;
       if (g.freeze.active && g.freeze.frozen.includes(msg.id)) return;
       if (g.phase !== "playing" || g.winner) return;
+      const moving = Math.abs(player.ball.vx) + Math.abs(player.ball.vy) > 0.2;
+      if (moving) return;
       const b = player.ball;
       b.vx = (msg.vx || 0) * 4;
       b.vy = (msg.vy || 0) * 4;

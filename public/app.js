@@ -15,6 +15,7 @@ let isOwner = false;
 let countdownTimer = null;
 let countdownRunning = false;
 let isFrozen = false;
+const STOP_EPS = 0.2;
 
 let game = {
   phase: "waiting",
@@ -105,6 +106,8 @@ function connect(roomCode) {
 
 // State
 function applyState(g) {
+  if (!g.items) g.items = [];
+  if (!g.freeze) g.freeze = { active: false, by: null, until: 0, frozen: [] };
   game = g;
   const freeze = g.freeze || {};
   isFrozen = freeze.active && freeze.frozen?.includes(myId);
@@ -134,10 +137,12 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-  if (isFrozen) return logToast("Gel? quelques secondes");
-  if (game.phase !== "playing") return logToast("La partie n'a pas commencé");
+  if (isFrozen) return logToast("Gele quelques secondes");
+  if (game.phase !== "playing") return logToast("La partie n'a pas commence");
   const me = game.players?.find(p => p.id === myId);
   if (!me) return;
+  const moving = Math.abs(me.ball?.vx || 0) + Math.abs(me.ball?.vy || 0) > STOP_EPS;
+  if (moving) return logToast("Attends que ta balle s'arrete");
   const p = pointerPos(e);
   const dx = p.x - me.ball.x;
   const dy = p.y - me.ball.y;
@@ -281,10 +286,16 @@ function draw() {
 
   // drag line
   if (dragging && dragStart?.current) {
+    const dx = dragStart.current.x - dragStart.x;
+    const dy = dragStart.current.y - dragStart.y;
+    const dist = Math.hypot(dx, dy);
+    const power = Math.min(dist, 50) / 50; // 0..1
+    const hue = 120 - 120 * power; // green -> red
+    const color = `hsl(${hue}, 90%, 60%)`;
     ctx.beginPath();
     ctx.moveTo(dragStart.x, dragStart.y);
     ctx.lineTo(dragStart.current.x, dragStart.current.y);
-    ctx.strokeStyle = "#ffffff88";
+    ctx.strokeStyle = color;
     ctx.setLineDash([6, 6]);
     ctx.lineWidth = 3;
     ctx.stroke();
