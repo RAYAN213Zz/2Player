@@ -3,69 +3,156 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<meta name="theme-color" content="#0b1020" />
+<meta name="theme-color" content="#0b0f1f" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="manifest" href="manifest.json" />
 <title>Versus Throw</title>
 <style>
     :root {
-        --bg: #0b1020;
-        --panel: #11182b;
+        --bg: #050914;
+        --panel: #0f162b;
         --accent: #7cf4ff;
+        --accent-2: #ff8ac9;
         --p1: #7eff7a;
         --p2: #ff7ad1;
+        --text: #eaf3ff;
     }
     * { box-sizing: border-box; }
     body {
         margin: 0;
-        background: radial-gradient(circle at 25% 20%, #0f1a33, #0b1020 60%);
-        color: #e9f2ff;
-        font-family: "Segoe UI", Tahoma, sans-serif;
-        overflow: hidden;
+        font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at 25% 20%, #0e1a38, #050914 60%);
+        color: var(--text);
         min-height: 100dvh;
         height: 100dvh;
+        overflow: hidden;
     }
     html { height: 100dvh; }
-    header {
+
+    /* Splash / menu */
+    #menu {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 40% 20%, rgba(124,244,255,0.08), transparent 35%),
+                    radial-gradient(circle at 70% 60%, rgba(255,138,201,0.08), transparent 30%),
+                    rgba(5,9,20,0.92);
+        backdrop-filter: blur(10px);
+        z-index: 20;
+        transition: opacity 180ms ease, transform 180ms ease, pointer-events 0s 180ms;
+    }
+    #menu.hidden {
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+        transition-delay: 0s;
+    }
+    #menu .card {
+        width: min(430px, 92vw);
+        background: linear-gradient(160deg, rgba(17,25,46,0.9), rgba(11,16,32,0.96));
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 20px;
+        padding: 22px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    h1 {
+        margin: 0 0 6px;
+        font-size: 24px;
+        letter-spacing: 0.03em;
+    }
+    .subtitle {
+        margin: 0 0 18px;
+        opacity: 0.8;
+        line-height: 1.4;
+    }
+    .field {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .field input {
+        flex: 1;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        color: var(--text);
+        font-size: 16px;
+        text-transform: uppercase;
+    }
+    button {
+        border: none;
+        border-radius: 12px;
+        background: rgba(124,244,255,0.2);
+        color: var(--text);
+        padding: 12px 14px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.12);
+        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    button:active { transform: translateY(1px) scale(0.99); }
+    .ghost {
+        background: rgba(255,255,255,0.08);
+    }
+    .primary {
+        background: linear-gradient(120deg, rgba(124,244,255,0.7), rgba(255,138,201,0.5));
+        border-color: rgba(255,255,255,0.16);
+        color: #041020;
+    }
+    .row {
+        display: flex;
+        gap: 10px;
+    }
+    .row button { flex: 1; }
+    .meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+    }
+    .pill {
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.1);
+        font-size: 13px;
+    }
+    .pill strong { color: var(--accent); }
+
+    /* HUD */
+    #hud {
         position: fixed;
         top: calc(10px + env(safe-area-inset-top));
         left: calc(10px + env(safe-area-inset-left));
         display: flex;
-        gap: 6px;
+        gap: 8px;
         align-items: center;
-        background: rgba(9,12,22,0.4);
+        z-index: 12;
+        background: rgba(8,12,24,0.55);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 14px;
+        padding: 8px 10px;
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 12px;
-        padding: 8px 10px;
-        z-index: 10;
     }
-    header input {
-        padding: 8px 10px;
+    #hud .tag {
+        padding: 7px 10px;
         border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,255,255,0.05);
-        color: #e9f2ff;
-        width: 120px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        font-size: 13px;
+        white-space: nowrap;
     }
-    header button {
-        padding: 8px 10px;
+    #openMenu {
+        padding: 8px 12px;
+        font-size: 13px;
         border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(124,244,255,0.18);
-        color: #e9f2ff;
-        cursor: pointer;
     }
-    #status {
-        padding: 6px 10px;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.08);
-        font-size: 12px;
-        min-width: 90px;
-        text-align: center;
-    }
-    #info { display: none; }
+
     #canvas {
         position: absolute;
         inset: 0;
@@ -73,34 +160,35 @@
     }
     #toast {
         position: fixed;
-        bottom: 12px;
+        bottom: 14px;
         left: 50%;
         transform: translateX(-50%);
-        padding: 10px 14px;
-        background: rgba(0,0,0,0.4);
+        padding: 12px 16px;
+        background: rgba(0,0,0,0.55);
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 12px;
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(10px);
         font-size: 14px;
         display: none;
+        z-index: 30;
     }
     #hint {
         position: fixed;
-        bottom: 10px;
-        right: 10px;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        right: calc(12px + env(safe-area-inset-right));
         padding: 10px 12px;
         background: rgba(0,0,0,0.35);
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 12px;
-        font-size: 12px;
-        max-width: 220px;
-        line-height: 1.4;
+        font-size: 13px;
+        max-width: 240px;
+        line-height: 1.5;
         color: #dbe7ff;
     }
     #zoomControls {
         position: fixed;
-        top: calc(10px + env(safe-area-inset-top) + 52px);
-        left: calc(10px + env(safe-area-inset-left));
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        left: calc(12px + env(safe-area-inset-left));
         display: flex;
         gap: 8px;
         z-index: 15;
@@ -111,8 +199,8 @@
         backdrop-filter: blur(6px);
     }
     #zoomControls button {
-        width: 42px;
-        height: 42px;
+        width: 44px;
+        height: 44px;
         border-radius: 10px;
         border: 1px solid rgba(255,255,255,0.12);
         background: rgba(124,244,255,0.2);
@@ -121,18 +209,51 @@
         font-size: 18px;
         line-height: 1;
     }
+
+    @media (max-width: 560px) {
+        h1 { font-size: 22px; }
+        .field input { font-size: 15px; }
+        #hud { gap: 6px; padding: 7px 8px; }
+        #hud .tag { font-size: 12px; }
+        #hint { max-width: 200px; font-size: 12px; }
+    }
 </style>
 </head>
 <body>
-    <header>
-        <span id="status">Deconnecte</span>
-        <input id="room" placeholder="Code salle" maxlength="8" />
-        <button id="create">Créer</button>
-        <button id="join">Rejoindre</button>
+    <div id="menu">
+        <div class="card">
+            <h1>Versus Throw</h1>
+            <p class="subtitle">Glisse pour lancer la balle vers la cible. Crée ou rejoins une salle, puis ferme le menu pour voir l'arène.</p>
+            <div class="field">
+                <input id="room" placeholder="Code salle" maxlength="8" />
+            </div>
+            <div class="row">
+                <button id="create">Créer</button>
+                <button id="join" class="ghost">Rejoindre</button>
+            </div>
+            <div class="meta">
+                <span class="pill" id="status">Déconnecté</span>
+                <span class="pill" id="you">Vous: -</span>
+                <span class="pill" id="turn">Tour: -</span>
+                <span class="pill"><strong id="score">0 - 0</strong></span>
+            </div>
+            <div style="margin-top: 16px;">
+                <button id="play" class="primary" style="width: 100%;">Afficher l'arène</button>
+            </div>
+        </div>
+    </div>
+
+    <header id="hud">
+        <span class="tag" id="hudStatus">Déconnecté</span>
+        <span class="tag" id="hudYou">Vous: -</span>
+        <span class="tag" id="hudTurn">Tour: -</span>
+        <span class="tag" id="hudScore">0 - 0</span>
+        <button id="openMenu">Menu</button>
     </header>
+
     <canvas id="canvas"></canvas>
     <div id="toast"></div>
-    <div id="hint">Appuie près de la balle, glisse vers la direction voulue, relâche. Code salle pour jouer à 2.</div>
+    <div id="hint">Appuie près de la balle, glisse vers la direction voulue, relâche. Code salle pour jouer à deux.</div>
     <div id="zoomControls">
         <button id="zoomOut">-</button>
         <button id="zoomIn">+</button>
@@ -152,6 +273,8 @@ let offsetX = 0;
 let offsetY = 0;
 let zoomFactor = 1;
 
+const menu = document.getElementById("menu");
+
 function logToast(msg) {
     const t = document.getElementById("toast");
     t.textContent = msg;
@@ -162,9 +285,31 @@ function logToast(msg) {
 
 function setStatus(text) {
     document.getElementById("status").textContent = text;
+    document.getElementById("hudStatus").textContent = text;
+}
+
+function setYou(text) {
+    document.getElementById("you").textContent = text;
+    document.getElementById("hudYou").textContent = text;
+}
+function setTurn(text, color) {
+    document.getElementById("turn").textContent = text;
+    document.getElementById("hudTurn").textContent = text;
+    if (color) {
+        document.getElementById("turn").style.color = color;
+        document.getElementById("hudTurn").style.color = color;
+    }
+}
+function setScore(text) {
+    document.getElementById("score").textContent = text;
+    document.getElementById("hudScore").textContent = text;
 }
 
 function connect(roomCode) {
+    if (!roomCode) {
+        logToast("Code requis");
+        return;
+    }
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         socket.close();
     }
@@ -173,6 +318,7 @@ function connect(roomCode) {
     socket.onopen = () => {
         setStatus("Connecté");
         socket.send(JSON.stringify({ type: "join" }));
+        menu.classList.add("hidden");
     };
     socket.onerror = () => setStatus("Erreur WS");
     socket.onclose = () => setStatus("Déconnecté");
@@ -180,11 +326,9 @@ function connect(roomCode) {
         const msg = JSON.parse(e.data);
         if (msg.type === "welcome") {
             myPlayer = msg.player;
-            document.getElementById("you").textContent = "Vous: " + myPlayer;
+            setYou("Vous: " + myPlayer);
         }
-        if (msg.type === "state") {
-            applyState(msg.game);
-        }
+        if (msg.type === "state") applyState(msg.game);
         if (msg.type === "toast") logToast(msg.message);
     };
 }
@@ -209,9 +353,8 @@ function resize() {
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     H = canvas.height = vh;
     const fit = Math.min(W / BASE_W, H / BASE_H);
-    // un léger dezoom pour tout voir, ajustable par zoomFactor
-    scale = fit * 0.9 * zoomFactor;
-    scale = Math.max(0.5, Math.min(scale, 1.4));
+    scale = fit * 0.95 * zoomFactor;
+    scale = Math.max(0.55, Math.min(scale, 1.35));
     offsetX = (W - BASE_W * scale) / 2;
     offsetY = (H - BASE_H * scale) / 2;
 }
@@ -220,9 +363,8 @@ window.addEventListener("resize", resize);
 
 function applyState(g) {
     game = g;
-    document.getElementById("turn").textContent = "Tour: " + game.turn;
-    document.getElementById("turn").style.color = game.turn === "P1" ? "var(--p1)" : "var(--p2)";
-    document.getElementById("score").textContent = `${game.scores.P1} - ${game.scores.P2}`;
+    setTurn("Tour: " + game.turn, game.turn === "P1" ? "var(--p1)" : "var(--p2)");
+    setScore(`${game.scores.P1} - ${game.scores.P2}`);
 }
 
 // ----------------------------------------------------
@@ -272,7 +414,7 @@ canvas.addEventListener("pointerup", (e) => {
     const dx = p.x - dragStart.x;
     const dy = p.y - dragStart.y;
     const dist = Math.hypot(dx, dy);
-    const power = Math.min(dist, 50) / 24; // encore plus doux
+    const power = Math.min(dist, 50) / 24; // doux
     const norm = Math.max(1, dist);
     const vx = dx / norm * power;
     const vy = dy / norm * power;
@@ -323,7 +465,7 @@ function draw() {
     ctx.strokeStyle = game.turn === "P1" ? "var(--p2)" : "var(--p1)";
     ctx.stroke();
 
-    // arrow to goal
+    // direction hint
     ctx.beginPath();
     ctx.moveTo(game.ball.x, game.ball.y);
     const dirX = game.goal.x - game.ball.x;
@@ -336,7 +478,7 @@ function draw() {
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 2;
     ctx.stroke();
-    // arrow head
+    // head
     const headSize = 8;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
@@ -371,15 +513,17 @@ document.getElementById("create").onclick = () => {
 };
 document.getElementById("join").onclick = () => {
     const code = document.getElementById("room").value.trim().toUpperCase();
-    if (!code) return logToast("Code requis");
     connect(code);
 };
+document.getElementById("play").onclick = () => menu.classList.add("hidden");
+document.getElementById("openMenu").onclick = () => menu.classList.remove("hidden");
+
 // bloquer le tir si la balle bouge encore côté client
 function ballMoving() {
     return Math.abs(game.ball.vx) + Math.abs(game.ball.vy) > 0.05 || !game.ready;
 }
 document.getElementById("zoomIn").onclick = () => { zoomFactor = Math.min(1.4, zoomFactor + 0.1); resize(); };
-document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.5, zoomFactor - 0.1); resize(); };
+document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.55, zoomFactor - 0.1); resize(); };
 </script>
 </body>
 </html>
