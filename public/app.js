@@ -11,6 +11,7 @@ let zoomFactor = 1;
 
 let socket = null;
 let myId = null;
+let myName = "";
 let isOwner = false;
 let countdownTimer = null;
 let countdownRunning = false;
@@ -22,7 +23,9 @@ let game = {
   players: [],
   goal: { x: BASE_W * 0.8, y: BASE_H * 0.5 },
   obstacles: [],
-  items: []
+  items: [],
+  freeze: { active: false, by: null, until: 0, frozen: [] },
+  reverse: { active: false, by: null, until: 0 }
 };
 
 const RENDER_WS = "wss://twoplayer-1.onrender.com";
@@ -68,30 +71,37 @@ function setHud(texts) {
 }
 function updateStartButton() {
   const btn = document.getElementById("startOverlay");
+  const replay = document.getElementById("replayOverlay");
   btn.style.display = isOwner && game.phase === "waiting" ? "inline-flex" : "none";
+  replay.style.display = isOwner && game.phase === "ended" ? "inline-flex" : "none";
 }
 
 // Connection
 function connect(roomCode) {
   if (!roomCode) { logToast("Code requis"); return; }
+  const rawName = document.getElementById("nickname").value.trim();
+  const nick = rawName || ("Joueur" + Math.floor(Math.random() * 1000));
+  myName = nick.slice(0, 12);
   if (socket && socket.readyState <= 1) socket.close();
-  socket = new WebSocket(`${wsUrl()}/?room=${roomCode}`);
+  const qs = `/?room=${roomCode}&name=${encodeURIComponent(myName)}`;
+  socket = new WebSocket(`${wsUrl()}${qs}`);
   setHud({ status: "Connexion..." });
 
   socket.onopen = () => {
-    setHud({ status: "Connecté" });
+    setHud({ status: "Connecte" });
     socket.send(JSON.stringify({ type: "join" }));
     document.getElementById("menu").classList.add("hidden");
   };
   socket.onerror = () => setHud({ status: "Erreur WS" });
-  socket.onclose = () => setHud({ status: "Déconnecté" });
+  socket.onclose = () => setHud({ status: "Deconnecte" });
 
   socket.onmessage = (e) => {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type === "welcome") {
       myId = msg.player;
+      myName = msg.name || myName || myId;
       isOwner = msg.owner ?? isOwner;
-      setHud({ you: "Vous: " + myId });
+      setHud({ you: "Vous: " + myName });
       updateStartButton();
     }
     if (msg.type === "start") {
@@ -108,15 +118,24 @@ function connect(roomCode) {
 function applyState(g) {
   if (!g.items) g.items = [];
   if (!g.freeze) g.freeze = { active: false, by: null, until: 0, frozen: [] };
+  if (!g.reverse) g.reverse = { active: false, by: null, until: 0 };
   game = g;
   const freeze = g.freeze || {};
+  const reverse = g.reverse || {};
   isFrozen = freeze.active && freeze.frozen?.includes(myId);
-  const remaining = freeze.active ? Math.max(0, Math.ceil((freeze.until - Date.now()) / 1000)) : 0;
+  const freezeRemain = freeze.active ? Math.max(0, Math.ceil((freeze.until - Date.now()) / 1000)) : 0;
+  const reverseRemain = reverse.active ? Math.max(0, Math.ceil((reverse.until - Date.now()) / 1000)) : 0;
+  const meState = g.players?.find(p => p.id === myId);
+  const boostActive = meState ? (meState.boostUntil || 0) > Date.now() : false;
   const itemLabel = document.getElementById("itemLabel");
   if (freeze.active) {
     itemLabel.textContent = isFrozen
-      ? `Gele ${remaining}s`
-      : `Geles (${freeze.by || "?"}) ${remaining}s`;
+      ? `Gele ${freezeRemain}s`
+      : `Geles (${freeze.by || "?"}) ${freezeRemain}s`;
+  } else if (reverse.active) {
+    itemLabel.textContent = `Inverse (${reverse.by || "?"}) ${reverseRemain}s`;
+  } else if (boostActive) {
+    itemLabel.textContent = "Boost actif";
   } else {
     itemLabel.textContent = "Item: aucun";
   }
@@ -124,6 +143,7 @@ function applyState(g) {
     turn: "Phase: " + (g.phase === "waiting" ? "attente" : g.phase === "playing" ? "en cours" : "termine"),
     score: `Joueurs: ${g.players?.length || 0}`
   });
+  updateStartButton();
 }
 
 // Input
@@ -232,18 +252,32 @@ function draw() {
 
   // items
   game.items?.forEach((it) => {
-    ctx.beginPath();
-    ctx.arc(it.x, it.y, 18, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
     if (it.type === "freeze") {
+      ctx.beginPath();
+      ctx.arc(it.x, it.y, 18, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(124,244,255,0.18)";
       ctx.strokeStyle = "rgba(124,244,255,0.8)";
-    } else {
-      ctx.fillStyle = "rgba(255,255,255,0.1)";
-      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.fill();
+      ctx.stroke();
+    } else if (it.type === "reverse") {
+      ctx.beginPath();
+      ctx.moveTo(it.x, it.y - 20);
+      ctx.lineTo(it.x - 16, it.y + 14);
+      ctx.lineTo(it.x + 16, it.y + 14);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,210,110,0.2)";
+      ctx.strokeStyle = "rgba(255,210,110,0.8)";
+      ctx.fill();
+      ctx.stroke();
+    } else if (it.type === "boost") {
+      ctx.beginPath();
+      ctx.rect(it.x - 16, it.y - 16, 32, 32);
+      ctx.fillStyle = "rgba(255,130,200,0.15)";
+      ctx.strokeStyle = "rgba(255,130,200,0.8)";
+      ctx.fill();
+      ctx.stroke();
     }
-    ctx.lineWidth = 3;
-    ctx.fill();
-    ctx.stroke();
   });
 
   // goal
@@ -281,7 +315,8 @@ function draw() {
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillStyle = "#ffffffcc";
-    ctx.fillText(p.id === myId ? "toi" : p.id, p.ball.x, p.ball.y + 16);
+    const label = p.id === myId ? (myName || "toi") : (p.name || p.id);
+    ctx.fillText(label, p.ball.x, p.ball.y + 16);
   });
 
   // drag line
@@ -323,9 +358,16 @@ document.getElementById("join").onclick = () => {
 document.getElementById("play").onclick = () => menu.classList.add("hidden");
 document.getElementById("openMenu").onclick = () => menu.classList.remove("hidden");
 document.getElementById("startOverlay").onclick = () => {
-  if (!isOwner) return logToast("Seul le créateur peut démarrer");
+  if (!isOwner) return logToast("Seul le createur peut demarrer");
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "start" }));
+  }
+  startCountdown();
+};
+document.getElementById("replayOverlay").onclick = () => {
+  if (!isOwner) return logToast("Seul le createur peut relancer");
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "restart", id: myId }));
   }
   startCountdown();
 };
@@ -333,5 +375,5 @@ document.getElementById("zoomIn").onclick = () => { zoomFactor = Math.min(1.4, z
 document.getElementById("zoomOut").onclick = () => { zoomFactor = Math.max(0.55, zoomFactor - 0.1); resize(); };
 
 // Init UI
-setHud({ status: "Déconnecté", you: "Vous: -", turn: "Phase: attente", score: "Joueurs: 0" });
+setHud({ status: "Deconnecte", you: "Vous: -", turn: "Phase: attente", score: "Joueurs: 0" });
 updateStartButton();

@@ -21,6 +21,9 @@ const ITEM_RADIUS = 18;
 const FREEZE_MS = 4000;
 const ITEM_RESPAWN_MS = 6000;
 const FIRST_ITEM_DELAY_MS = 1200;
+const REVERSE_MS = 5000;
+const BOOST_MS = 6000;
+const START_SPEED_LIMIT = 0.2; // bloque un tir tant que la balle bouge
 
 // roomCode -> { players: [{id, ws, ball}], game, loop }
 const rooms = new Map();
@@ -56,6 +59,7 @@ function makeGame() {
     winner: null,
     items: [],
     freeze: { active: false, by: null, until: 0, frozen: [] },
+    reverse: { active: false, by: null, until: 0 },
   };
 }
 
@@ -69,6 +73,9 @@ function startLoop(roomCode) {
     // Fin d'effet freeze
     if (g.freeze.active && now > g.freeze.until) {
       g.freeze = { active: false, by: null, until: 0, frozen: [] };
+    }
+    if (g.reverse.active && now > g.reverse.until) {
+      g.reverse = { active: false, by: null, until: 0 };
     }
 
     // Physique pour chaque balle
@@ -128,6 +135,8 @@ function startLoop(roomCode) {
         if (dist < BALL_RADIUS + ITEM_RADIUS) {
           g.items = g.items.filter((it) => it.id !== item.id);
           if (item.type === "freeze") triggerFreeze(roomCode, p.id);
+          if (item.type === "reverse") triggerReverse(roomCode, p.id);
+          if (item.type === "boost") giveBoost(roomCode, p.id);
           scheduleNextItem(room);
         }
       }
@@ -137,7 +146,7 @@ function startLoop(roomCode) {
 
     // spawn item
     if (g.items.length === 0 && now >= room.nextItemAt) {
-      g.items.push(makeFreezeItem());
+      g.items.push(makeItem(randomItemType()));
       scheduleNextItem(room);
     }
 
@@ -147,20 +156,25 @@ function startLoop(roomCode) {
 
 function randomObstacles() {
   const obs = [];
-  for (let i = 0; i < 3; i++) {
-    const w = 150;
-    const h = 28;
+  for (let i = 0; i < 5; i++) {
+    const w = 130 + Math.random() * 40;
+    const h = 24 + Math.random() * 10;
     const x = 120 + Math.random() * (WIDTH - 240 - w);
-    const y = 180 + Math.random() * (HEIGHT - 260 - h);
+    const y = 140 + Math.random() * (HEIGHT - 220 - h);
     obs.push({ x, y, w, h });
   }
   return obs;
 }
 
-function makeFreezeItem() {
+function randomItemType() {
+  const pool = ["freeze", "reverse", "boost"];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function makeItem(type) {
   return {
     id: nanoid(6),
-    type: "freeze",
+    type,
     x: 140 + Math.random() * (WIDTH - 280),
     y: 140 + Math.random() * (HEIGHT - 200),
   };
@@ -175,14 +189,57 @@ function triggerFreeze(roomCode, byId) {
   if (!room) return;
   const g = room.game;
   const frozen = (g.players || []).map((p) => p.id).filter((id) => id !== byId);
-  g.freeze = { active: true, by: byId, until: Date.now() + FREEZE_MS, frozen };
+  const byName = room.players.find(p => p.role === byId)?.name || byId;
+  g.freeze = { active: true, by: byName, until: Date.now() + FREEZE_MS, frozen };
   for (const p of g.players) {
     if (p.id !== byId) {
       p.ball.vx = 0;
       p.ball.vy = 0;
     }
   }
-  broadcast(roomCode, { type: "toast", message: `${byId} a gelé tout le monde !` });
+  broadcast(roomCode, { type: "toast", message: `${byName} a gelé tout le monde !` });
+}
+
+function triggerReverse(roomCode, byId) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const g = room.game;
+  const byName = room.players.find(p => p.role === byId)?.name || byId;
+  g.reverse = { active: true, by: byName, until: Date.now() + REVERSE_MS };
+  for (const p of g.players) {
+    p.ball.vx *= -1;
+    p.ball.vy *= -1;
+  }
+  broadcast(roomCode, { type: "toast", message: `${byName} inverse les controles !` });
+}
+
+function giveBoost(roomCode, byId) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const target = room.players.find(p => p.role === byId);
+  if (!target) return;
+  target.boostUntil = Date.now() + BOOST_MS;
+  const byName = target.name || byId;
+  broadcast(roomCode, { type: "toast", message: `${byName} gagne un boost !` });
+}
+
+function resetForStart(room) {
+  const g = room.game;
+  g.phase = "playing";
+  g.winner = null;
+  g.items = [];
+  g.freeze = { active: false, by: null, until: 0, frozen: [] };
+  g.reverse = { active: false, by: null, until: 0 };
+  g.obstacles = randomObstacles();
+  for (const p of room.players) {
+    p.ball.x = WIDTH * (0.2 + Math.random() * 0.6);
+    p.ball.y = HEIGHT * (0.2 + Math.random() * 0.6);
+    p.ball.vx = 0;
+    p.ball.vy = 0;
+    p.boostUntil = 0;
+  }
+  g.players = room.players.map(p => ({ id: p.role, name: p.name, ball: p.ball, boostUntil: p.boostUntil || 0 }));
+  room.nextItemAt = Date.now() + FIRST_ITEM_DELAY_MS;
 }
 
 function resolvePlayerCollisions(game) {
@@ -228,6 +285,8 @@ function broadcast(roomCode, msg) {
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url || "/", "http://localhost");
   const roomCode = (url.searchParams.get("room") || "DEFAULT").toUpperCase();
+  const rawName = (url.searchParams.get("name") || "").trim();
+  const safeName = rawName.replace(/[^a-zA-Z0-9 _-]/g, "").slice(0, 12);
 
   if (!rooms.has(roomCode)) {
     const g = makeGame();
@@ -243,16 +302,17 @@ wss.on("connection", (ws, req) => {
   }
 
   const role = `P${room.players.length + 1}`;
+  const name = safeName || role;
   const ball = {
     x: WIDTH * (0.2 + Math.random() * 0.6),
     y: HEIGHT * (0.2 + Math.random() * 0.6),
     vx: 0,
     vy: 0,
   };
-  room.players.push({ id: role, ws, role, ball });
-  room.game.players = room.players.map(p => ({ id: p.role, ball: p.ball }));
+  room.players.push({ id: role, name, ws, role, ball, boostUntil: 0 });
+  room.game.players = room.players.map(p => ({ id: p.role, name: p.name, ball: p.ball, boostUntil: p.boostUntil || 0 }));
 
-  ws.send(JSON.stringify({ type: "welcome", player: role, owner: role === "P1" }));
+  ws.send(JSON.stringify({ type: "welcome", player: role, name, owner: role === "P1" }));
   ws.send(JSON.stringify({ type: "state", game: room.game }));
   broadcast(roomCode, { type: "toast", message: `${role} a rejoint` });
 
@@ -264,8 +324,17 @@ wss.on("connection", (ws, req) => {
     const g = room.game;
 
     if (msg.type === "start") {
-      g.phase = "playing";
-      g.winner = null;
+      resetForStart(room);
+      broadcast(roomCode, { type: "start" });
+      broadcast(roomCode, { type: "state", game: g });
+      return;
+    }
+
+    if (msg.type === "restart") {
+      const owner = room.players[0]?.role;
+      if (owner && owner !== msg.id) return;
+      resetForStart(room);
+      broadcast(roomCode, { type: "toast", message: "Nouvelle manche" });
       broadcast(roomCode, { type: "start" });
       broadcast(roomCode, { type: "state", game: g });
       return;
@@ -276,11 +345,15 @@ wss.on("connection", (ws, req) => {
       if (!player) return;
       if (g.freeze.active && g.freeze.frozen.includes(msg.id)) return;
       if (g.phase !== "playing" || g.winner) return;
-      const moving = Math.abs(player.ball.vx) + Math.abs(player.ball.vy) > 0.2;
+      const moving = Math.abs(player.ball.vx) + Math.abs(player.ball.vy) > START_SPEED_LIMIT;
       if (moving) return;
+      const boost = Date.now() < (player.boostUntil || 0) ? 1.5 : 1;
       const b = player.ball;
-      b.vx = (msg.vx || 0) * 4;
-      b.vy = (msg.vy || 0) * 4;
+      let vx = (msg.vx || 0) * 4 * boost;
+      let vy = (msg.vy || 0) * 4 * boost;
+      if (g.reverse.active) { vx *= -1; vy *= -1; }
+      b.vx = vx;
+      b.vy = vy;
       const speed = Math.hypot(b.vx, b.vy);
       const maxSpeed = 14;
       if (speed > maxSpeed) {
@@ -288,7 +361,7 @@ wss.on("connection", (ws, req) => {
         b.vx *= k;
         b.vy *= k;
       }
-      g.players = room.players.map(p => ({ id: p.role, ball: p.ball }));
+      g.players = room.players.map(p => ({ id: p.role, name: p.name, ball: p.ball, boostUntil: p.boostUntil || 0 }));
       broadcast(roomCode, { type: "state", game: g });
       return;
     }
@@ -298,7 +371,7 @@ wss.on("connection", (ws, req) => {
     if (!rooms.has(roomCode)) return;
     const r = rooms.get(roomCode);
     r.players = r.players.filter((p) => p.role !== role);
-    r.game.players = r.players.map(p => ({ id: p.role, ball: p.ball }));
+    r.game.players = r.players.map(p => ({ id: p.role, name: p.name, ball: p.ball, boostUntil: p.boostUntil || 0 }));
     broadcast(roomCode, { type: "toast", message: `${role} a quitté` });
     if (r.players.length === 0) {
       clearInterval(r.loop);
