@@ -14,6 +14,7 @@ let myId = null;
 let isOwner = false;
 let countdownTimer = null;
 let countdownRunning = false;
+let isFrozen = false;
 
 let game = {
   phase: "waiting",
@@ -105,8 +106,19 @@ function connect(roomCode) {
 // State
 function applyState(g) {
   game = g;
+  const freeze = g.freeze || {};
+  isFrozen = freeze.active && freeze.frozen?.includes(myId);
+  const remaining = freeze.active ? Math.max(0, Math.ceil((freeze.until - Date.now()) / 1000)) : 0;
+  const itemLabel = document.getElementById("itemLabel");
+  if (freeze.active) {
+    itemLabel.textContent = isFrozen
+      ? `Gele ${remaining}s`
+      : `Geles (${freeze.by || "?"}) ${remaining}s`;
+  } else {
+    itemLabel.textContent = "Item: aucun";
+  }
   setHud({
-    turn: "Phase: " + (g.phase === "waiting" ? "attente" : g.phase === "playing" ? "en cours" : "terminé"),
+    turn: "Phase: " + (g.phase === "waiting" ? "attente" : g.phase === "playing" ? "en cours" : "termine"),
     score: `Joueurs: ${g.players?.length || 0}`
   });
 }
@@ -122,6 +134,7 @@ function pointerPos(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
+  if (isFrozen) return logToast("Gel? quelques secondes");
   if (game.phase !== "playing") return logToast("La partie n'a pas commencé");
   const me = game.players?.find(p => p.id === myId);
   if (!me) return;
@@ -211,6 +224,22 @@ function draw() {
   grad.addColorStop(1, "#0a0f1f");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // items
+  game.items?.forEach((it) => {
+    ctx.beginPath();
+    ctx.arc(it.x, it.y, 18, 0, Math.PI * 2);
+    if (it.type === "freeze") {
+      ctx.fillStyle = "rgba(124,244,255,0.18)";
+      ctx.strokeStyle = "rgba(124,244,255,0.8)";
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,0.1)";
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    }
+    ctx.lineWidth = 3;
+    ctx.fill();
+    ctx.stroke();
+  });
 
   // goal
   ctx.beginPath();

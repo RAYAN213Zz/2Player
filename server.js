@@ -17,6 +17,9 @@ const WIDTH = 900;
 const HEIGHT = 600;
 const FRICTION = 0.992;
 const MAX_PLAYERS = 30;
+const ITEM_RADIUS = 18;
+const FREEZE_MS = 4000;
+const ITEM_RESPAWN_MS = 6000;
 
 // roomCode -> { players: [{id, ws, ball}], game, loop }
 const rooms = new Map();
@@ -50,6 +53,8 @@ function makeGame() {
     obstacles: [],
     phase: "waiting", // waiting | playing | ended
     winner: null,
+    items: [],
+    freeze: { active: false, by: null, until: 0, frozen: [] },
   };
 }
 
@@ -58,10 +63,18 @@ function startLoop(roomCode) {
   if (!room || room.loop) return;
   room.loop = setInterval(() => {
     const g = room.game;
+    const now = Date.now();
+
+    // Fin d'effet freeze
+    if (g.freeze.active && now > g.freeze.until) {
+      g.freeze = { active: false, by: null, until: 0, frozen: [] };
+    }
 
     // Physique pour chaque balle
     for (const p of g.players) {
       const b = p.ball;
+      const isFrozen = g.freeze.active && g.freeze.frozen.includes(p.id);
+      if (isFrozen) { b.vx = 0; b.vy = 0; }
       b.x += b.vx;
       b.y += b.vy;
       b.vx *= FRICTION;
@@ -105,9 +118,26 @@ function startLoop(roomCode) {
         g.phase = "ended";
         broadcast(roomCode, { type: "toast", message: `${p.id} gagne !` });
       }
+
+      // items pick
+      for (const item of [...g.items]) {
+        const dx = b.x - item.x;
+        const dy = b.y - item.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < BALL_RADIUS + ITEM_RADIUS) {
+          g.items = g.items.filter((it) => it.id !== item.id);
+          if (item.type === "freeze") triggerFreeze(roomCode, p.id);
+          scheduleNextItem(room);
+        }
+      }
     }
 
     resolvePlayerCollisions(g);
+
+    // spawn item
+    if (g.items.length === 0 && now >= room.nextItemAt) {
+      g.items.push(makeFreezeItem());
+    }
 
     broadcast(roomCode, { type: "state", game: g });
   }, TICK);
@@ -123,6 +153,34 @@ function randomObstacles() {
     obs.push({ x, y, w, h });
   }
   return obs;
+}
+
+function makeFreezeItem() {
+  return {
+    id: nanoid(6),
+    type: "freeze",
+    x: 140 + Math.random() * (WIDTH - 280),
+    y: 140 + Math.random() * (HEIGHT - 200),
+  };
+}
+
+function scheduleNextItem(room) {
+  room.nextItemAt = Date.now() + ITEM_RESPAWN_MS;
+}
+
+function triggerFreeze(roomCode, byId) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const g = room.game;
+  const frozen = (g.players || []).map((p) => p.id).filter((id) => id !== byId);
+  g.freeze = { active: true, by: byId, until: Date.now() + FREEZE_MS, frozen };
+  for (const p of g.players) {
+    if (p.id !== byId) {
+      p.ball.vx = 0;
+      p.ball.vy = 0;
+    }
+  }
+  broadcast(roomCode, { type: "toast", message: `${byId} a gelé tout le monde !` });
 }
 
 function resolvePlayerCollisions(game) {
@@ -172,7 +230,7 @@ wss.on("connection", (ws, req) => {
   if (!rooms.has(roomCode)) {
     const g = makeGame();
     g.obstacles = randomObstacles();
-    rooms.set(roomCode, { players: [], game: g, loop: null });
+    rooms.set(roomCode, { players: [], game: g, loop: null, nextItemAt: Date.now() + ITEM_RESPAWN_MS });
   }
 
   const room = rooms.get(roomCode);
@@ -214,6 +272,7 @@ wss.on("connection", (ws, req) => {
     if (msg.type === "throw") {
       const player = room.players.find(p => p.role === msg.id);
       if (!player) return;
+      if (g.freeze.active && g.freeze.frozen.includes(msg.id)) return;
       if (g.phase !== "playing" || g.winner) return;
       const b = player.ball;
       b.vx = (msg.vx || 0) * 4;
