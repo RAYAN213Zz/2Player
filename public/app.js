@@ -13,7 +13,7 @@ let socket = null;
 let myId = null;
 let isOwner = false;
 let countdownTimer = null;
-let countdownValue = null;
+let countdownRunning = false;
 
 let game = {
   phase: "waiting",
@@ -109,7 +109,6 @@ function applyState(g) {
     turn: "Phase: " + (g.phase === "waiting" ? "attente" : g.phase === "playing" ? "en cours" : "terminé"),
     score: `Joueurs: ${g.players?.length || 0}`
   });
-  if (g.phase === "playing" && !countdownValue) startCountdown();
 }
 
 // Input
@@ -180,7 +179,8 @@ function updatePower(point) {
 // Countdown
 function startCountdown() {
   const cd = document.getElementById("countdown");
-  if (cd.classList.contains("show")) return;
+  if (countdownRunning) return;
+  countdownRunning = true;
   const seq = ["3", "2", "1", "GO"];
   let idx = 0;
   cd.textContent = seq[idx];
@@ -190,6 +190,7 @@ function startCountdown() {
     if (idx >= seq.length) {
       cd.classList.remove("show");
       cd.textContent = "";
+      countdownRunning = false;
       return;
     }
     cd.textContent = seq[idx];
