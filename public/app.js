@@ -416,5 +416,5 @@ ui.zoomIn.onclick = () => { zoomFactor = Math.min(1.4, zoomFactor + 0.1); resize
 ui.zoomOut.onclick = () => { zoomFactor = Math.max(0.55, zoomFactor - 0.1); resize(); };
 
 // Init UI
-setHud({ status: "Deconnecte", you: "Vous:  -", turn: "Phase: attente", score: "Joueurs: 0" });
+setHud({ status: "Deconnecter", you: "Vous:  -", turn: "Phase: attente", score: "Joueurs: 0" });
 updateStartButton();
