@@ -87,34 +87,34 @@ function startLoop(roomCode) {
 function runTick(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
-  const g = room.game;
+  const game = room.game;
   const now = Date.now();
 
   // 1) expire effets  2) avance la physique  3) gere collisions/items  4) diffuse l'etat
   // Effets temporaires
-  if (g.freeze.active && now > g.freeze.until) {
-    g.freeze = { active: false, by: null, until: 0, frozen: [] };
+  if (game.freeze.active && now > game.freeze.until) {
+    game.freeze = { active: false, by: null, until: 0, frozen: [] };
   }
-  if (g.reverse.active && now > g.reverse.until) {
-    g.reverse = { active: false, by: null, until: 0 };
+  if (game.reverse.active && now > game.reverse.until) {
+    game.reverse = { active: false, by: null, until: 0 };
   }
 
   // Physique de chaque balle
-  for (const p of g.players) {
-    updateBallPhysics(p, g);
-    handleGoal(roomCode, p, g);
+  for (const p of game.players) {
+    updateBallPhysics(p, game);
+    handleGoal(roomCode, p, game);
     handleItemPickup(roomCode, p, room);
   }
 
-  resolvePlayerCollisions(g);
+  resolvePlayerCollisions(game);
 
   // Apparition des items
-  if (g.items.length === 0 && now >= room.nextItemAt) {
-    g.items.push(makeItem(randomItemType()));
+  if (game.items.length === 0 && now >= room.nextItemAt) {
+    game.items.push(makeItem(randomItemType()));
     scheduleNextItem(room);
   }
 
-  broadcast(roomCode, { type: "state", game: g });
+  broadcast(roomCode, { type: "state", game });
 }
 
 function updateBallPhysics(player, game) {
@@ -176,14 +176,14 @@ function handleGoal(roomCode, player, game) {
 }
 
 function handleItemPickup(roomCode, player, room) {
-  const g = room.game;
+  const game = room.game;
   const b = player.ball;
-  for (const item of [...g.items]) {
+  for (const item of [...game.items]) {
     const dx = b.x - item.x;
     const dy = b.y - item.y;
     const dist = Math.hypot(dx, dy);
     if (dist < BALL_RADIUS + ITEM_RADIUS) {
-      g.items = g.items.filter((it) => it.id !== item.id);
+      game.items = game.items.filter((it) => it.id !== item.id);
       if (item.type === "freeze") triggerFreeze(roomCode, player.id);
       if (item.type === "reverse") triggerReverse(roomCode, player.id);
       if (item.type === "boost") giveBoost(roomCode, player.id);
@@ -225,11 +225,11 @@ function scheduleNextItem(room) {
 function triggerFreeze(roomCode, byId) {
   const room = rooms.get(roomCode);
   if (!room) return;
-  const g = room.game;
-  const frozen = (g.players || []).map((p) => p.id).filter((id) => id !== byId);
+  const game = room.game;
+  const frozen = (game.players || []).map((p) => p.id).filter((id) => id !== byId);
   const byName = getDisplayName(room, byId);
-  g.freeze = { active: true, by: byName, until: Date.now() + FREEZE_MS, frozen };
-  for (const p of g.players) {
+  game.freeze = { active: true, by: byName, until: Date.now() + FREEZE_MS, frozen };
+  for (const p of game.players) {
     if (p.id !== byId) {
       p.ball.vx = 0;
       p.ball.vy = 0;
@@ -241,10 +241,10 @@ function triggerFreeze(roomCode, byId) {
 function triggerReverse(roomCode, byId) {
   const room = rooms.get(roomCode);
   if (!room) return;
-  const g = room.game;
+  const game = room.game;
   const byName = getDisplayName(room, byId);
-  g.reverse = { active: true, by: byName, until: Date.now() + REVERSE_MS };
-  for (const p of g.players) {
+  game.reverse = { active: true, by: byName, until: Date.now() + REVERSE_MS };
+  for (const p of game.players) {
     p.ball.vx *= -1;
     p.ball.vy *= -1;
   }
@@ -262,13 +262,13 @@ function giveBoost(roomCode, byId) {
 }
 
 function resetForStart(room) {
-  const g = room.game;
-  g.phase = "playing";
-  g.winner = null;
-  g.items = [];
-  g.freeze = { active: false, by: null, until: 0, frozen: [] };
-  g.reverse = { active: false, by: null, until: 0 };
-  g.obstacles = randomObstacles();
+  const game = room.game;
+  game.phase = "playing";
+  game.winner = null;
+  game.items = [];
+  game.freeze = { active: false, by: null, until: 0, frozen: [] };
+  game.reverse = { active: false, by: null, until: 0 };
+  game.obstacles = randomObstacles();
   for (const p of room.players) {
     p.ball.x = WIDTH * (0.2 + Math.random() * 0.6);
     p.ball.y = HEIGHT * (0.2 + Math.random() * 0.6);
@@ -314,11 +314,11 @@ function broadcast(roomCode, msg) {
   const room = rooms.get(roomCode);
   if (!room) return;
   const data = JSON.stringify(msg);
-  for (const p of room.players) {
-    if (p.ws.readyState === p.ws.OPEN) {
-      p.ws.send(data);
+  room.players.forEach((player) => {
+    if (player.ws.readyState === player.ws.OPEN) {
+      player.ws.send(data);
     }
-  }
+  });
 }
 
 function getDisplayName(room, role) {
@@ -374,13 +374,13 @@ wss.on("connection", (ws, req) => {
   ws.on("message", (raw) => {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
-    const g = room.game;
+    const game = room.game;
 
     switch (msg.type) {
       case "start": {
         resetForStart(room);
         broadcast(roomCode, { type: "start" });
-        broadcast(roomCode, { type: "state", game: g });
+        broadcast(roomCode, { type: "state", game });
         break;
       }
       case "restart": {
@@ -389,14 +389,14 @@ wss.on("connection", (ws, req) => {
         resetForStart(room);
         broadcast(roomCode, { type: "toast", message: "Nouvelle manche" });
         broadcast(roomCode, { type: "start" });
-        broadcast(roomCode, { type: "state", game: g });
+        broadcast(roomCode, { type: "state", game });
         break;
       }
       case "throw": {
         const player = room.players.find((p) => p.role === msg.id);
         if (!player) break;
-        if (g.freeze.active && g.freeze.frozen.includes(msg.id)) break;
-        if (g.phase !== "playing" || g.winner) break;
+        if (game.freeze.active && game.freeze.frozen.includes(msg.id)) break;
+        if (game.phase !== "playing" || game.winner) break;
 
         const moving = Math.abs(player.ball.vx) + Math.abs(player.ball.vy) > START_SPEED_LIMIT;
         if (moving) break;
@@ -405,7 +405,7 @@ wss.on("connection", (ws, req) => {
         const b = player.ball;
         let vx = (msg.vx || 0) * 4 * boost;
         let vy = (msg.vy || 0) * 4 * boost;
-        if (g.reverse.active) { vx *= -1; vy *= -1; }
+        if (game.reverse.active) { vx *= -1; vy *= -1; }
         b.vx = vx;
         b.vy = vy;
 
@@ -418,7 +418,7 @@ wss.on("connection", (ws, req) => {
         }
 
         syncGamePlayers(room);
-        broadcast(roomCode, { type: "state", game: g });
+        broadcast(roomCode, { type: "state", game });
         break;
       }
       default:
