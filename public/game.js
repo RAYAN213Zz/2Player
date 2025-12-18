@@ -76,7 +76,7 @@ export class Game {
   }
 
   updatePhysics() {
-    if (this.phase !== "playing") return;
+    if (this.phase !== "playing") return false;
     const b = this.ball;
     b.x += b.vx;
     b.y += b.vy;

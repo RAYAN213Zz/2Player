@@ -32,6 +32,7 @@ let zoomFactor = 1;
 let countdownTimer = null;
 let countdownRunning = false;
 const game = new Game();
+let nextRoundScheduled = false;
 
 function resize() {
   W = ui.canvas.width = window.innerWidth;
@@ -125,18 +126,21 @@ function resetAndHud() {
 }
 
 ui.canvas.addEventListener("pointerdown", (e) => {
+  if (countdownRunning) return;
   const res = game.pointerDown(pointerPos(e));
   if (res?.message) logToast(res.message);
   if (res?.ok) updatePower(pointerPos(e)); else updatePower(null);
 });
 
 ui.canvas.addEventListener("pointermove", (e) => {
+  if (countdownRunning) return;
   game.pointerMove(pointerPos(e));
   const state = game.getState();
   if (state.dragging && state.dragCurrent) updatePower(state.dragCurrent);
 });
 
 ui.canvas.addEventListener("pointerup", () => {
+  if (countdownRunning) return;
   game.pointerUp();
   updatePower(null);
 });
@@ -146,9 +150,15 @@ function draw() {
   const state = game.getState();
 
   if (won) {
-    ui.replayOverlay.style.display = "inline-flex";
     setHud({ turn: "Phase: gagne" });
     logToast("Bravo !");
+    if (!nextRoundScheduled) {
+      nextRoundScheduled = true;
+      startCountdown(() => {
+        nextRoundScheduled = false;
+        resetAndHud();
+      });
+    }
   }
 
   ctx.clearRect(0, 0, W, H);
