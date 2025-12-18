@@ -12,25 +12,15 @@
   <div id="menu" class="overlay">
     <div class="card">
       <h1>Versus Throw</h1>
-      <p class="subtitle">Glisse pour lancer ta balle vers la cible. Cree ou rejoins une salle, puis lance la partie.</p>
-      <div class="field">
-        <input id="nickname" placeholder="Pseudo" maxlength="12" />
-      </div>
-      <div class="field">
-        <input id="room" placeholder="Code salle" maxlength="8" />
-      </div>
-      <div class="row">
-        <button id="create" class="primary">Creer</button>
-        <button id="join" class="ghost">Rejoindre</button>
-      </div>
+      <p class="subtitle">Version solo : glisse pour lancer ta balle vers le trou. Pas de connexion requise.</p>
       <div class="meta">
-        <span class="pill" id="status">Deconnecte</span>
-        <span class="pill" id="you">Vous: -</span>
+        <span class="pill" id="status">Solo (offline)</span>
+        <span class="pill" id="you">Vous: Solo</span>
         <span class="pill" id="turn">Phase: attente</span>
-        <span class="pill"><strong id="score">Joueurs: 0</strong></span>
+        <span class="pill"><strong id="score">Joueur: 1</strong></span>
       </div>
       <div class="row" style="margin-top: 14px;">
-        <button id="play" class="full ghost">Afficher l'arene</button>
+        <button id="play" class="full primary">Jouer</button>
       </div>
     </div>
   </div>
@@ -49,13 +39,13 @@
     <span id="powerLabel">Puissance: 0%</span>
   </div>
   <div id="items">
-    <span id="itemLabel">Item: aucun</span>
+    <span id="itemLabel">Mode solo</span>
   </div>
   <div id="countdown"></div>
   <button id="startOverlay">Commencer</button>
   <button id="replayOverlay">Rejouer</button>
   <div id="toast"></div>
-  <div id="hint">Glisse pour tirer vers la cible. Le createur lance la partie.</div>
+  <div id="hint">Glisse pour tirer vers la cible.</div>
   <div id="zoomControls">
     <button id="zoomOut">-</button>
     <button id="zoomIn">+</button>
