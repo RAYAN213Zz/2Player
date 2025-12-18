@@ -102,6 +102,7 @@ button:active { transform: translateY(1px) scale(0.99); }
   border-radius: 14px;
   padding: 8px 10px;
   backdrop-filter: blur(10px);
+  flex-wrap: wrap;
 }
 #hud .tag {
   padding: 7px 10px;
@@ -247,22 +248,6 @@ button:active { transform: translateY(1px) scale(0.99); }
   display: none;
   z-index: 17;
 }
-#replayOverlay {
-  position: fixed;
-  bottom: calc(68px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.12);
-  color: #eaf3ff;
-  font-weight: 700;
-  font-size: 14px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-  display: none;
-  z-index: 17;
-}
 
 #hint {
   position: fixed;
@@ -279,9 +264,14 @@ button:active { transform: translateY(1px) scale(0.99); }
 }
 
 @media (max-width: 560px) {
-  h1 { font-size: 22px; }
-  .field input { font-size: 15px; }
-  #hud { gap: 6px; padding: 7px 8px; }
+  h1 { font-size: 20px; }
+  .card { padding: 18px; border-radius: 16px; }
+  .field input { font-size: 15px; padding: 11px 12px; }
+  button { padding: 11px 12px; font-size: 14px; }
+  #hud { gap: 6px; padding: 7px 8px; max-width: 96vw; }
   #hud .tag { font-size: 12px; }
-  #hint { max-width: 200px; font-size: 12px; }
+  #powerHud, #items { flex-direction: column; align-items: flex-start; right: 10px; left: auto; transform: none; }
+  #powerBarWrap { width: 110px; }
+  #zoomControls button { width: 40px; height: 40px; }
+  #hint { max-width: 200px; font-size: 12px; right: calc(10px + env(safe-area-inset-right)); }
 }
