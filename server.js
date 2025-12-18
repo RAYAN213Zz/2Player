@@ -440,6 +440,6 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`HTTP + WS server on http://localhost:${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`HTTP + WS server on http://0.0.0.0:${PORT}`);
 });
