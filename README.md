@@ -1,6 +1,4 @@
-# Versus Throw (solo)
-
-Version solo 100% front : pas de serveur, juste ouvrir la page.
+# Versus Throw
 
 ## Jouer en local
 1. Ouvrir `public/index.html` dans un navigateur (ou servir le dossier `public/` via un hébergeur statique).

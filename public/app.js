@@ -86,7 +86,6 @@ function setHud(texts) {
   }
 }
 
-// Solo game setup
 function randomObstacles() {
   const obs = [];
   for (let i = 0; i < 5; i++) {
@@ -104,7 +103,7 @@ function resetGame() {
   game.obstacles = randomObstacles();
   game.players = [{
     id: "P1",
-    name: "Solo",
+    name: "Joueur",
     ball: {
       x: BASE_W * (0.2 + Math.random() * 0.6),
       y: BASE_H * (0.2 + Math.random() * 0.6),
@@ -114,16 +113,10 @@ function resetGame() {
   }];
   game.phase = "playing";
   game.winner = false;
-  setHud({
-    status: "Solo (offline)",
-    you: "Vous: Solo",
-    turn: "Phase: en cours",
-    score: "Joueur: 1"
-  });
+  setHud({ status: "Pret", you: "Vous", turn: "Phase: en cours", score: "Joueur: 1" });
   ui.startOverlay.style.display = "none";
   ui.replayOverlay.style.display = "none";
-  ui.itemLabel.textContent = "Mode solo";
-  logToast("Atteins le trou !");
+  ui.itemLabel.textContent = "Atteins le trou";
 }
 
 // Input: drag pour viser/lancer
@@ -315,7 +308,7 @@ function draw() {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillStyle = "#ffffffcc";
-  ctx.fillText("Solo", p.ball.x, p.ball.y + 16);
+  ctx.fillText("Toi", p.ball.x, p.ball.y + 16);
 
   // drag line
   if (dragging && dragStart?.current) {
